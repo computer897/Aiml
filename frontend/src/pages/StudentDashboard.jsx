@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Settings, Video, GraduationCap, LogOut, Bell, BookOpen, Clock, MessageSquare } from 'lucide-react'
-import { scheduledClasses, teacherNotes } from '../data/mockData'
+import { classAPI } from '../services/api'
 import ClassCard from '../components/ClassCard'
 import NoteCard from '../components/NoteCard'
 
@@ -9,9 +9,77 @@ function StudentDashboard({ user, onLogout }) {
   const navigate = useNavigate()
   const [messageText, setMessageText] = useState('')
   const [selectedTeacher, setSelectedTeacher] = useState('')
+  const [enrolledClasses, setEnrolledClasses] = useState([])
+  const [classToJoin, setClassToJoin] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const handleJoinClass = (classId) => {
-    navigate(`/classroom/${classId}`)
+  // Load enrolled classes on mount
+  useEffect(() => {
+    loadEnrolledClasses()
+  }, [])
+
+  const loadEnrolledClasses = async () => {
+    try {
+      setLoading(true)
+      const classes = await classAPI.getStudentClasses()
+      setEnrolledClasses(classes)
+    } catch (error) {
+      console.error('Failed to load classes:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleJoinClass = async (classId) => {
+    if (!classId) {
+      const id = prompt('Enter Class ID to join:')
+      if (!id) return
+      classId = id
+    }
+    
+    setLoading(true)
+    try {
+      const classData = await classAPI.get(classId)
+      
+      if (!classData.is_active) {
+        alert('This class is not currently active. Please wait for the teacher to start the session.')
+        return
+      }
+      
+      navigate(`/classroom/${classId}`, { state: { classData } })
+    } catch (error) {
+      alert('Failed to join class: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleJoinByClassId = async () => {
+    if (!classToJoin.trim()) {
+      alert('Please enter a Class ID')
+      return
+    }
+    
+    setLoading(true)
+    try {
+      // Try to enroll first (ignore if already enrolled)
+      try {
+        await classAPI.join(classToJoin)
+      } catch (enrollError) {
+        // If already enrolled, that's fine — continue to join
+        if (!enrollError.message?.includes('Already enrolled')) {
+          throw enrollError
+        }
+      }
+      
+      // Now navigate to the classroom
+      await handleJoinClass(classToJoin)
+    } catch (error) {
+      alert('Failed to join class: ' + error.message)
+    } finally {
+      setLoading(false)
+      setClassToJoin('')
+    }
   }
 
   const handleSendMessage = (e) => {
@@ -74,13 +142,23 @@ function StudentDashboard({ user, onLogout }) {
         </div>
 
         <div className="mb-8">
-          <button
-            onClick={() => handleJoinClass('class-1')}
-            className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl font-semibold text-lg hover:from-blue-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
-          >
-            <Video className="w-6 h-6" />
-            Join Classroom
-          </button>
+          <div className="flex gap-3 flex-col sm:flex-row">
+            <input
+              type="text"
+              value={classToJoin}
+              onChange={(e) => setClassToJoin(e.target.value)}
+              placeholder="Enter Class ID"
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            />
+            <button
+              onClick={handleJoinByClassId}
+              disabled={loading}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-3 disabled:opacity-50"
+            >
+              <Video className="w-5 h-5" />
+              {loading ? 'Joining...' : 'Join Classroom'}
+            </button>
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-6">
@@ -94,13 +172,20 @@ function StudentDashboard({ user, onLogout }) {
               </div>
 
               <div className="space-y-4">
-                {scheduledClasses.map((classItem) => (
-                  <ClassCard 
-                    key={classItem.id} 
-                    classItem={classItem} 
-                    onJoin={handleJoinClass} 
-                  />
-                ))}
+                {enrolledClasses.length > 0 ? (
+                  enrolledClasses.map((classItem) => (
+                    <ClassCard 
+                      key={classItem.id} 
+                      classItem={classItem} 
+                      onJoin={handleJoinClass} 
+                    />
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <p>No enrolled classes yet.</p>
+                    <p className="text-sm mt-2">Enter a Class ID above to join a class.</p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -113,9 +198,9 @@ function StudentDashboard({ user, onLogout }) {
               </div>
 
               <div className="space-y-3">
-                {teacherNotes.map((note) => (
-                  <NoteCard key={note.id} note={note} />
-                ))}
+                <div className="text-center py-6 text-gray-500 text-sm">
+                  Notes will appear here when teachers share them
+                </div>
               </div>
             </div>
           </div>

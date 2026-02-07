@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { GraduationCap, Mail, Lock, User } from 'lucide-react'
+import { authAPI } from '../services/api'
 
 function SignUp({ setUser }) {
   const navigate = useNavigate()
@@ -11,6 +12,8 @@ function SignUp({ setUser }) {
     confirmPassword: '',
     role: 'student'
   })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const handleChange = (e) => {
     setFormData({
@@ -19,28 +22,45 @@ function SignUp({ setUser }) {
     })
   }
 
-  const handleSignUp = (e) => {
+  const handleSignUp = async (e) => {
     e.preventDefault()
+    setLoading(true)
+    setError('')
     
-    // Mock sign up
+    // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match!')
+      setError('Passwords do not match!')
+      setLoading(false)
       return
     }
 
-    const user = {
-      email: formData.email,
-      role: formData.role,
-      name: formData.name
-    }
-    
-    setUser(user)
-    
-    // Navigate based on role
-    if (formData.role === 'student') {
-      navigate('/student-dashboard')
-    } else {
-      navigate('/teacher-dashboard')
+    try {
+      // Call backend API for registration
+      await authAPI.register(formData.name, formData.email, formData.password, formData.role)
+      
+      // After successful registration, login automatically
+      const loginResponse = await authAPI.login(formData.email, formData.password)
+      
+      const userData = {
+        id: loginResponse.user.id,
+        email: loginResponse.user.email,
+        role: loginResponse.user.role,
+        name: loginResponse.user.name,
+        token: loginResponse.access_token
+      }
+      
+      setUser(userData)
+      
+      // Navigate based on role
+      if (userData.role === 'student') {
+        navigate('/student-dashboard')
+      } else {
+        navigate('/teacher-dashboard')
+      }
+    } catch (err) {
+      setError(err.message || 'Registration failed. Please try again.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -59,6 +79,12 @@ function SignUp({ setUser }) {
         {/* Sign Up Form */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">Sign Up</h2>
+          
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              {error}
+            </div>
+          )}
           
           <form onSubmit={handleSignUp} className="space-y-5">
             {/* Role Selector */}
@@ -175,9 +201,10 @@ function SignUp({ setUser }) {
             {/* Sign Up Button */}
             <button
               type="submit"
-              className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg hover:shadow-xl"
+              disabled={loading}
+              className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Create Account
+              {loading ? 'Creating Account...' : 'Create Account'}
             </button>
           </form>
 

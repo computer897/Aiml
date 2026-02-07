@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Mic, MicOff, Video, VideoOff, MessageSquare, Phone, HelpCircle, Users, Monitor, X } from 'lucide-react'
-import { mockStudents, mockMessages, mockDoubts } from '../data/mockData'
+import { mockMessages, mockDoubts } from '../data/mockData'
+import { classAPI, attendanceAPI, createWebSocket, webcamUtils } from '../services/api'
 import EngagementList from '../components/EngagementList'
 import ChatPanel from '../components/ChatPanel'
 import DoubtsPanel from '../components/DoubtsPanel'
@@ -16,9 +17,177 @@ function Classroom({ user, onLogout }) {
   const [showDoubts, setShowDoubts] = useState(false)
   const [messages, setMessages] = useState(mockMessages)
   const [doubts, setDoubts] = useState(mockDoubts)
+  
+  // Backend integration state
+  const [classData, setClassData] = useState(null)
+  const [students, setStudents] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [attendanceId, setAttendanceId] = useState(null)
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+  const wsRef = useRef(null)
+  const frameIntervalRef = useRef(null)
 
-  const handleLeaveClass = () => {
+  // Load class data and start session
+  useEffect(() => {
+    loadClassData()
+    
+    // Cleanup on unmount
+    return () => {
+      if (frameIntervalRef.current) {
+        clearInterval(frameIntervalRef.current)
+      }
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
+      if (user?.role === 'student' && attendanceId) {
+        handleEndAttendance()
+      }
+      if (videoRef.current && videoRef.current.srcObject) {
+        webcamUtils.stopWebcam(videoRef.current.srcObject)
+      }
+    }
+  }, [id])
+
+  // Start webcam for students
+  useEffect(() => {
+    if (videoOn && videoRef.current) {
+      startWebcam()
+    } else if (!videoOn && videoRef.current && videoRef.current.srcObject) {
+      webcamUtils.stopWebcam(videoRef.current.srcObject)
+      videoRef.current.srcObject = null
+      if (frameIntervalRef.current) {
+        clearInterval(frameIntervalRef.current)
+      }
+    }
+  }, [videoOn])
+
+  // WebSocket for teacher real-time updates
+  useEffect(() => {
+    if (user?.role === 'teacher' && classData) {
+      connectWebSocket()
+    }
+  }, [classData])
+
+  const loadClassData = async () => {
+    try {
+      setLoading(true)
+      const data = await classAPI.get(id)
+      setClassData(data)
+      
+      if (user?.role === 'student') {
+        await startAttendance()
+      }
+    } catch (error) {
+      console.error('Failed to load class:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const startAttendance = async () => {
+    try {
+      const response = await attendanceAPI.start(id)
+      setAttendanceId(response.attendance_id)
+    } catch (error) {
+      console.error('Failed to start attendance:', error)
+    }
+  }
+
+  const startWebcam = async () => {
+    try {
+      const stream = await webcamUtils.startWebcam()
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+      }
+      
+      // Only students send frames for attendance tracking
+      if (user?.role === 'student') {
+        frameIntervalRef.current = setInterval(async () => {
+          if (canvasRef.current && videoRef.current && attendanceId) {
+            const frameData = webcamUtils.captureFrame(videoRef.current, canvasRef.current)
+            try {
+              await attendanceAPI.submitFrame(attendanceId, frameData)
+            } catch (error) {
+              console.error('Failed to submit frame:', error)
+            }
+          }
+        }, 3000)
+      }
+    } catch (error) {
+      console.error('Failed to start webcam:', error)
+      alert('Failed to access webcam. Please check permissions.')
+      setVideoOn(false)
+    }
+  }
+
+  const handleEndAttendance = async () => {
+    if (attendanceId) {
+      try {
+        await attendanceAPI.end(attendanceId)
+      } catch (error) {
+        console.error('Failed to end attendance:', error)
+      }
+    }
+  }
+
+  const connectWebSocket = () => {
+    if (!classData?.class_id) return
+    
+    const ws = createWebSocket(classData.class_id)
+    
+    ws.onopen = () => {
+      console.log('WebSocket connected')
+    }
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      if (data.type === 'engagement_update') {
+        updateStudentEngagement(data)
+      }
+    }
+    
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error)
+    }
+    
+    ws.onclose = () => {
+      console.log('WebSocket disconnected')
+    }
+    
+    wsRef.current = ws
+  }
+
+  const updateStudentEngagement = (data) => {
+    setStudents(prevStudents => {
+      const studentIndex = prevStudents.findIndex(s => s.id === data.student_id)
+      if (studentIndex >= 0) {
+        const updated = [...prevStudents]
+        updated[studentIndex] = {
+          ...updated[studentIndex],
+          engagement: Math.round(data.engagement_percentage),
+          status: data.face_detected ? 'active' : 'inactive',
+          lookingAtScreen: data.looking_at_screen
+        }
+        return updated
+      } else {
+        // Add new student
+        return [...prevStudents, {
+          id: data.student_id,
+          name: data.student_name || 'Student',
+          engagement: Math.round(data.engagement_percentage),
+          status: data.face_detected ? 'active' : 'inactive',
+          lookingAtScreen: data.looking_at_screen
+        }]
+      }
+    })
+  }
+
+  const handleLeaveClass = async () => {
     if (window.confirm('Are you sure you want to leave the classroom?')) {
+      if (user?.role === 'student' && attendanceId) {
+        await handleEndAttendance()
+      }
       navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')
     }
   }
@@ -67,15 +236,19 @@ function Classroom({ user, onLogout }) {
           <div className="flex items-center gap-3">
             <Monitor className="w-5 h-5 text-blue-400" />
             <div>
-              <h1 className="text-white text-lg font-semibold">Advanced Mathematics - Integration</h1>
-              <p className="text-gray-400 text-sm">Dr. Sarah Johnson</p>
+              <h1 className="text-white text-lg font-semibold">
+                {loading ? 'Loading...' : classData?.title || 'Classroom'}
+              </h1>
+              <p className="text-gray-400 text-sm">
+                {classData?.teacher_name || 'Teacher'}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 rounded-lg">
               <Users className="w-4 h-4 text-green-400" />
               <span className="text-white text-sm font-medium">
-                {mockStudents.filter(s => s.status !== 'absent').length} Present
+                {students.filter(s => s.status !== 'absent').length} Present
               </span>
             </div>
             <button
@@ -89,63 +262,90 @@ function Classroom({ user, onLogout }) {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar - Engagement */}
-        {showEngagement && (
+        {showEngagement && user?.role === 'teacher' && (
           <div className="w-72 bg-gray-800 border-r border-gray-700 overflow-hidden">
-            <EngagementList students={mockStudents} />
+            <EngagementList students={students} />
           </div>
         )}
 
-        {/* Center - Main Video Area */}
-        <div className="flex-1 flex flex-col bg-black">
-          {/* Video Grid / Presenter */}
-          <div className="flex-1 relative flex items-center justify-center">
-            {/* Presenter Screen */}
-            <div className="w-full h-full bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-40 h-40 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-2xl">
-                  <span className="text-white text-5xl font-bold">
-                    {user?.name?.split(' ').map(n => n[0]).join('') || user?.role?.charAt(0).toUpperCase()}
-                  </span>
-                </div>
-                <p className="text-white text-2xl font-semibold mb-2">{user?.name}</p>
-                <p className="text-gray-400 text-sm uppercase tracking-wide">{user?.role}</p>
-                <div className="mt-4 flex items-center justify-center gap-3">
-                  <div className={`px-3 py-1 rounded-full ${videoOn ? 'bg-green-600' : 'bg-red-600'}`}>
-                    <span className="text-white text-xs font-medium">
-                      {videoOn ? 'Camera On' : 'Camera Off'}
-                    </span>
-                  </div>
-                  <div className={`px-3 py-1 rounded-full ${micOn ? 'bg-green-600' : 'bg-red-600'}`}>
-                    <span className="text-white text-xs font-medium">
-                      {micOn ? 'Mic On' : 'Mic Off'}
-                    </span>
+        {/* Central Video Area */}
+        <div className="flex-1 relative overflow-hidden">
+          {/* Video Feed (when camera on) */}
+            {videoOn ? (
+              <div className="w-full h-full bg-black flex items-center justify-center">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="max-w-full max-h-full object-contain mirror"
+                  style={{ transform: 'scaleX(-1)' }}
+                />
+                <canvas ref={canvasRef} style={{ display: 'none' }} />
+                
+                {/* Status Indicator */}
+                <div className="absolute top-4 right-4">
+                  <div className={`${user?.role === 'student' ? 'bg-green-600/90 border-green-500' : 'bg-blue-600/90 border-blue-500'} px-4 py-2 rounded-lg border`}>
+                    <p className="text-white text-sm font-medium">
+                      {user?.role === 'student' ? '✓ Attendance Active' : '📹 Camera On'}
+                    </p>
                   </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="w-40 h-40 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-2xl">
+                    <span className="text-white text-5xl font-bold">
+                      {user?.name?.split(' ').map(n => n[0]).join('') || user?.role?.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-white text-2xl font-semibold mb-2">{user?.name}</p>
+                  <p className="text-gray-400 text-sm uppercase tracking-wide">{user?.role}</p>
+                  {user?.role === 'student' && (
+                    <p className="text-yellow-400 text-sm mt-4">Turn on camera to mark attendance</p>
+                  )}
+                  <div className="mt-4 flex items-center justify-center gap-3">
+                    <div className={`px-3 py-1 rounded-full ${videoOn ? 'bg-green-600' : 'bg-red-600'}`}>
+                      <span className="text-white text-xs font-medium">
+                        {videoOn ? 'Camera On' : 'Camera Off'}
+                      </span>
+                    </div>
+                    <div className={`px-3 py-1 rounded-full ${micOn ? 'bg-green-600' : 'bg-red-600'}`}>
+                      <span className="text-white text-xs font-medium">
+                        {micOn ? 'Mic On' : 'Mic Off'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Screen Share Indicator */}
-            <div className="absolute top-4 left-4">
-              <div className="bg-gray-800/90 px-4 py-2 rounded-lg border border-gray-700">
-                <p className="text-white text-sm font-medium">📺 Shared Screen</p>
+            {user?.role === 'teacher' && (
+              <div className="absolute top-4 left-4">
+                <div className="bg-gray-800/90 px-4 py-2 rounded-lg border border-gray-700">
+                  <p className="text-white text-sm font-medium">📺 Shared Screen</p>
+                </div>
               </div>
-            </div>
-          </div>
+            )}
 
           {/* Bottom Controls */}
-          <div className="bg-gray-800 border-t border-gray-700 px-6 py-4 flex-shrink-0">
+          <div className="absolute bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700 px-6 py-4">
             <div className="flex items-center justify-between max-w-4xl mx-auto">
               <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setShowEngagement(!showEngagement)}
-                  className="p-3 rounded-full bg-gray-700 hover:bg-gray-600 transition-all"
-                  title="Toggle Engagement Panel"
-                >
-                  <Users className="w-5 h-5 text-white" />
-                </button>
+                {user?.role === 'teacher' && (
+                  <button
+                    onClick={() => setShowEngagement(!showEngagement)}
+                    className="p-3 rounded-full bg-gray-700 hover:bg-gray-600 transition-all"
+                    title="Toggle Engagement Panel"
+                  >
+                    <Users className="w-5 h-5 text-white" />
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-3">

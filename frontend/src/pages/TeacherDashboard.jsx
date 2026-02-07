@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, GraduationCap, Settings, LogOut, Bell, Video } from 'lucide-react'
-import { mockAttendance, engagementStats } from '../data/mockData'
+import { classAPI, attendanceAPI } from '../services/api'
 import EngagementStats from '../components/EngagementStats'
 import AttendanceTable from '../components/AttendanceTable'
 import CreateClassModal from '../components/CreateClassModal'
@@ -9,15 +9,74 @@ import CreateClassModal from '../components/CreateClassModal'
 function TeacherDashboard({ user, onLogout }) {
   const navigate = useNavigate()
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [classes, setClasses] = useState([])
+  const [activeClass, setActiveClass] = useState(null)
+  const [attendanceData, setAttendanceData] = useState([])
+  const [loading, setLoading] = useState(false)
 
-  const handleCreateClass = (formData) => {
-    alert(`Classroom "${formData.title}" created successfully!`)
-    setIsModalOpen(false)
-    // Navigate to classroom or refresh data
+  // Load classes and attendance data on mount
+  useEffect(() => {
+    loadTeacherData()
+  }, [])
+
+  const loadTeacherData = async () => {
+    try {
+      setLoading(true)
+      // Load created classes
+      const createdClasses = await classAPI.getTeacherClasses()
+      setClasses(createdClasses)
+      
+      // Load attendance for the first active class if available
+      if (createdClasses.length > 0 && createdClasses[0].is_active) {
+        const report = await attendanceAPI.getReport(createdClasses[0].class_id)
+        setAttendanceData(report.attendance_records || [])
+        setActiveClass(createdClasses[0])
+      }
+    } catch (error) {
+      console.error('Failed to load teacher data:', error)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleStartClass = () => {
-    navigate('/classroom/class-1')
+  const handleCreateClass = async (formData) => {
+    setLoading(true)
+    try {
+      // Format the date for backend
+      const classData = {
+        class_id: formData.classId,
+        title: formData.title,
+        description: formData.description || '',
+        schedule_time: new Date(formData.scheduleTime).toISOString(),
+        duration_minutes: parseInt(formData.duration)
+      }
+      
+      const response = await classAPI.create(classData)
+      alert(`Classroom "${response.title}" created successfully!`)
+      setIsModalOpen(false)
+      // Refresh classes list
+      await loadTeacherData()
+    } catch (error) {
+      alert('Failed to create class: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleStartClass = async () => {
+    if (classes.length > 0) {
+      const classToStart = classes[0]
+      try {
+        const response = await classAPI.activate(classToStart.class_id)
+        navigate(`/classroom/${classToStart.class_id}`, { 
+          state: { sessionId: response.session_id, classData: classToStart }
+        })
+      } catch (error) {
+        alert('Failed to activate class: ' + error.message)
+      }
+    } else {
+      alert('Please create a class first!')
+    }
   }
 
   return (
@@ -89,10 +148,17 @@ function TeacherDashboard({ user, onLogout }) {
         </div>
 
         {/* Engagement Statistics */}
-        <EngagementStats stats={engagementStats} />
+        <EngagementStats stats={{
+          totalClasses: classes.length,
+          activeStudents: attendanceData.filter(a => a.status === 'present').length,
+          avgEngagement: attendanceData.length > 0 
+            ? Math.round(attendanceData.reduce((sum, a) => sum + (a.engagement_percentage || 0), 0) / attendanceData.length)
+            : 0,
+          presentToday: attendanceData.filter(a => a.status === 'present').length
+        }} />
 
         {/* Attendance Table */}
-        <AttendanceTable attendanceData={mockAttendance} />
+        <AttendanceTable attendanceData={attendanceData} />
       </main>
 
       {/* Create Class Modal */}

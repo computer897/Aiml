@@ -1,30 +1,45 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { GraduationCap, Mail, Lock } from 'lucide-react'
+import { authAPI } from '../services/api'
 
 function Login({ setUser }) {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('student')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault()
+    setLoading(true)
+    setError('')
     
-    // Mock authentication
-    const user = {
-      email,
-      role,
-      name: role === 'student' ? 'John Doe' : 'Dr. Sarah Johnson'
-    }
-    
-    setUser(user)
-    
-    // Navigate based on role
-    if (role === 'student') {
-      navigate('/student-dashboard')
-    } else {
-      navigate('/teacher-dashboard')
+    try {
+      // Call backend API
+      const response = await authAPI.login(email, password)
+      
+      // Store user data with token
+      const userData = {
+        id: response.user.id,
+        email: response.user.email,
+        role: response.user.role,
+        name: response.user.name,
+        token: response.access_token
+      }
+      
+      setUser(userData)
+      
+      // Navigate based on role
+      if (userData.role === 'student') {
+        navigate('/student-dashboard')
+      } else {
+        navigate('/teacher-dashboard')
+      }
+    } catch (err) {
+      setError(err.message || 'Login failed. Please check your credentials.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -44,37 +59,13 @@ function Login({ setUser }) {
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">Welcome Back</h2>
           
-          <form onSubmit={handleLogin} className="space-y-5">
-            {/* Role Selector */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select Role
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setRole('student')}
-                  className={`py-3 px-4 rounded-lg font-medium transition-all ${
-                    role === 'student'
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Student
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRole('teacher')}
-                  className={`py-3 px-4 rounded-lg font-medium transition-all ${
-                    role === 'teacher'
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Teacher
-                </button>
-              </div>
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              {error}
             </div>
+          )}
+          
+          <form onSubmit={handleLogin} className="space-y-5">
 
             {/* Email */}
             <div>
@@ -124,9 +115,10 @@ function Login({ setUser }) {
             {/* Login Button */}
             <button
               type="submit"
-              className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg hover:shadow-xl"
+              disabled={loading}
+              className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Sign In
+              {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
 

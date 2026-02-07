@@ -3,6 +3,7 @@ import { X, Upload, Calendar, Clock } from 'lucide-react'
 
 function CreateClassModal({ isOpen, onClose, onCreate }) {
   const [formData, setFormData] = useState({
+    classId: '',
     title: '',
     topic: '',
     date: '',
@@ -13,8 +14,17 @@ function CreateClassModal({ isOpen, onClose, onCreate }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    onCreate(formData)
+    // Combine date and time into ISO datetime string
+    const scheduleTime = `${formData.date}T${formData.time}:00`
+    onCreate({
+      classId: formData.classId,
+      title: formData.title,
+      description: formData.topic + (formData.notes ? ' - ' + formData.notes : ''),
+      scheduleTime: scheduleTime,
+      duration: formData.duration
+    })
     setFormData({
+      classId: '',
       title: '',
       topic: '',
       date: '',
@@ -42,6 +52,21 @@ function CreateClassModal({ isOpen, onClose, onCreate }) {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {/* Class ID */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Class ID *
+            </label>
+            <input
+              type="text"
+              value={formData.classId}
+              onChange={(e) => setFormData({ ...formData, classId: e.target.value })}
+              placeholder="e.g., CS101-2026"
+              required
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            />
+          </div>
+
           {/* Class Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
