@@ -1,5 +1,5 @@
-// API Base URL - change this to your backend URL
-const API_BASE_URL = 'http://localhost:8080'
+// API Base URL - uses VITE_API_URL env var in production, falls back to localhost for dev
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
 // Helper function to get auth token
 const getAuthToken = () => {
@@ -141,7 +141,8 @@ export const attendanceAPI = {
 // WebSocket connection for real-time updates
 export const createWebSocket = (classId) => {
   const token = getAuthToken()
-  const ws = new WebSocket(`ws://localhost:8080/attendance/ws/${classId}?token=${token}`)
+  const wsBase = API_BASE_URL.replace(/^http/, 'ws')
+  const ws = new WebSocket(`${wsBase}/attendance/ws/${classId}?token=${token}`)
   
   return ws
 }

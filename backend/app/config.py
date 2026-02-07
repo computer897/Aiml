@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     # Server Configuration
     host: str = "0.0.0.0"
     port: int = 8080
+    environment: str = "development"  # "development" or "production"
+    frontend_url: str = "http://localhost:5173"
     
     # Engagement Thresholds
     attendance_threshold: float = 75.0  # Percentage for present status

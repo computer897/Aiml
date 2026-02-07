@@ -53,9 +53,14 @@ app = FastAPI(
 
 
 # Configure CORS
+cors_origins = (
+    [settings.frontend_url]
+    if settings.environment == "production"
+    else ["*"]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -121,12 +126,13 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     
-    logger.info(f"Starting server on {settings.host}:{settings.port}")
+    is_prod = settings.environment == "production"
+    logger.info(f"Starting server on {settings.host}:{settings.port} (env={settings.environment})")
     
     uvicorn.run(
         "main:app",
         host=settings.host,
         port=settings.port,
-        reload=True,
+        reload=not is_prod,
         log_level="info"
     )

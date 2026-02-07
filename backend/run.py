@@ -20,20 +20,24 @@ def main():
         print("⚠️  Warning: .env file not found! Using default settings.")
     
     print("🚀 Starting server...")
-    print("📍 API will be available at: http://localhost:8080")
-    print("📚 Documentation: http://localhost:8080/docs")
-    print("🔍 Alternative docs: http://localhost:8080/redoc")
+    port = int(os.environ.get("PORT", 8080))
+    print(f"📍 API will be available at: http://localhost:{port}")
+    print(f"📚 Documentation: http://localhost:{port}/docs")
+    print(f"🔍 Alternative docs: http://localhost:{port}/redoc")
     print()
     print("Press CTRL+C to stop the server")
     print("=" * 60)
     print()
     
+    port = int(os.environ.get("PORT", 8080))
+    is_prod = os.environ.get("ENVIRONMENT", "development") == "production"
+    
     # Start the server
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8080,
-        reload=True,
+        port=port,
+        reload=not is_prod,
         log_level="info"
     )
 
