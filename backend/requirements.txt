@@ -15,7 +15,7 @@ pymongo==4.6.1
 
 # Computer Vision
 opencv-python==4.9.0.80
-mediapipe==0.10.9
+mediapipe==0.10.32
 numpy==1.26.3
 
 # Utilities
