@@ -6,13 +6,16 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: { origin: "*" }
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 
 const rooms = {};
 
 io.on("connection", socket => {
-  console.log("Connected:", socket.id);
+  console.log("User connected:", socket.id);
 
   socket.on("join-room", roomId => {
     socket.join(roomId);
@@ -20,13 +23,11 @@ io.on("connection", socket => {
     if (!rooms[roomId]) rooms[roomId] = [];
     rooms[roomId].push(socket.id);
 
-    // Send old users to new user
     socket.emit(
       "existing-users",
       rooms[roomId].filter(id => id !== socket.id)
     );
 
-    // Inform others
     socket.to(roomId).emit("user-joined", socket.id);
   });
 
@@ -56,13 +57,11 @@ io.on("connection", socket => {
       rooms[roomId] = rooms[roomId].filter(id => id !== socket.id);
       socket.to(roomId).emit("user-left", socket.id);
     }
-    console.log("Disconnected:", socket.id);
+    console.log("User disconnected:", socket.id);
   });
 });
 
 const PORT = process.env.PORT || 5000;
-
 server.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
-
