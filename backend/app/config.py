@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # Database Configuration
-    # Accepts MONGODB_URL or MONGODB_URI (Atlas uses the latter)
+    # Set MONGODB_URL env var to your Atlas connection string:
+    # mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
     mongodb_url: str = "mongodb://localhost:27017"
     database_name: str = "virtual_classroom"
 
