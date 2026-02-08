@@ -39,7 +39,12 @@ class UserCreate(BaseModel):
     """Schema for user registration."""
     name: str = Field(..., min_length=2, max_length=100)
     email: EmailStr
-    password: str = Field(..., min_length=6)
+    password: str = Field(
+        ...,
+        min_length=8,
+        max_length=64,
+        description="Password must be 8-64 characters",
+    )
     role: UserRole
 
 

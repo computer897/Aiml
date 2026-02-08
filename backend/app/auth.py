@@ -13,41 +13,58 @@ from app.config import settings
 from app.database import get_db
 from app.models import User, UserRole
 import logging
+import hashlib
+import hmac
 
 logger = logging.getLogger(__name__)
 
 # Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use bcrypt__ident="2b" to avoid passlib version-detection warnings
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
 # HTTP Bearer token scheme
 security = HTTPBearer()
 
 
+# bcrypt has a hard 72-byte input limit.  Pydantic validation caps passwords
+# at 64 *characters*, which is safe for ASCII but could exceed 72 bytes with
+# multi-byte UTF-8.  Pre-hashing with SHA-256 gives a fixed-length input,
+# which is the industry-standard approach used by Dropbox, Django, etc.
+
+def _prehash(password: str) -> str:
+    """SHA-256 pre-hash the password to guarantee ≤ 72 bytes for bcrypt."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
 def hash_password(password: str) -> str:
     """
-    Hash a plain text password using bcrypt.
-    
+    Hash a plain text password using bcrypt with SHA-256 pre-hashing.
+
+    The SHA-256 step ensures the input to bcrypt is always 64 hex chars
+    (64 bytes), safely under bcrypt's 72-byte limit regardless of the
+    original password's encoding.
+
     Args:
-        password: Plain text password
-        
+        password: Plain text password (validated to 8-64 chars by Pydantic)
+
     Returns:
         Hashed password string
     """
-    return pwd_context.hash(password)
+    return pwd_context.hash(_prehash(password))
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a plain text password against a hashed password.
-    
+
     Args:
         plain_password: Plain text password to verify
         hashed_password: Hashed password to compare against
-        
+
     Returns:
         True if passwords match, False otherwise
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    return pwd_context.verify(_prehash(plain_password), hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
