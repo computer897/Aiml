@@ -3,6 +3,7 @@ Main FastAPI application initialization.
 Configures the server, connects to database, and registers all routes.
 """
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -24,23 +25,24 @@ async def lifespan(app: FastAPI):
     """
     Application lifespan manager.
     Handles startup and shutdown events.
+    Database connection is NON-BLOCKING so the app always boots
+    and Render can detect the open port.
     """
-    # Startup: Connect to MongoDB
-    logger.info("🚀 Starting Virtual Classroom Backend...")
-    try:
-        await database.connect_db()
-        logger.info("✓ Database connected successfully")
-    except Exception as e:
-        logger.error(f"✗ Failed to connect to database: {e}")
-        logger.error("✗ MongoDB must be running. Please start MongoDB and restart the server.")
-        raise  # Stop the app if database fails
-    
+    # Startup
+    logger.info("Starting Virtual Classroom Backend...")
+    await database.connect_db()  # never raises — logs warnings instead
+
+    if database.is_connected():
+        logger.info("Database connected successfully")
+    else:
+        logger.warning("App started WITHOUT database — DB will reconnect on first request")
+
     yield
-    
-    # Shutdown: Close database connection
-    logger.info("🛑 Shutting down Virtual Classroom Backend...")
+
+    # Shutdown
+    logger.info("Shutting down Virtual Classroom Backend...")
     await database.close_db()
-    logger.info("✓ Database connection closed")
+    logger.info("Shutdown complete")
 
 
 # Create FastAPI application
@@ -104,35 +106,35 @@ async def health_check():
     Returns:
         Server health status
     """
+    from datetime import datetime, timezone
+
     try:
-        # Test database connection
         db = database.get_database()
         await db.command("ping")
-        
-        return {
-            "status": "healthy",
-            "database": "connected",
-            "timestamp": "2026-02-03T00:00:00Z"
-        }
+        db_status = "connected"
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "database": "disconnected",
-            "error": str(e)
-        }
+        logger.error(f"Health check DB ping failed: {e}")
+        db_status = "disconnected"
+
+    return {
+        "status": "healthy" if db_status == "connected" else "degraded",
+        "database": db_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+
+    # Render injects PORT env var; fall back to config for local dev
+    port = int(os.environ.get("PORT", settings.port))
     is_prod = settings.environment == "production"
-    logger.info(f"Starting server on {settings.host}:{settings.port} (env={settings.environment})")
-    
+    logger.info(f"Starting server on {settings.host}:{port} (env={settings.environment})")
+
     uvicorn.run(
         "main:app",
         host=settings.host,
-        port=settings.port,
+        port=port,
         reload=not is_prod,
-        log_level="info"
+        log_level="info",
     )
