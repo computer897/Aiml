@@ -20,7 +20,7 @@ def main():
         print("⚠️  Warning: .env file not found! Using default settings.")
     
     print("🚀 Starting server...")
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     print(f"📍 API will be available at: http://localhost:{port}")
     print(f"📚 Documentation: http://localhost:{port}/docs")
     print(f"🔍 Alternative docs: http://localhost:{port}/redoc")
@@ -29,7 +29,6 @@ def main():
     print("=" * 60)
     print()
     
-    port = int(os.environ.get("PORT", 8080))
     is_prod = os.environ.get("ENVIRONMENT", "development") == "production"
     
     # Start the server

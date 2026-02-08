@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     
     # Server Configuration
     host: str = "0.0.0.0"
-    port: int = 8080
+    port: int = 10000
     environment: str = "development"  # "development" or "production"
     frontend_url: str = "http://localhost:5173"
     
