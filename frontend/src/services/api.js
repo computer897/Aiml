@@ -170,11 +170,11 @@ export const webcamUtils = {
     return canvasElement.toDataURL('image/jpeg').split(',')[1] // Return only base64 data
   },
 
-  startWebcam: async () => {
+  startWebcam: async ({ audio = false } = {}) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480 },
-        audio: false,
+        audio: audio,
       })
       return stream
     } catch (error) {

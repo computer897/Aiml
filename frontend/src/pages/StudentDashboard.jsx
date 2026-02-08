@@ -36,17 +36,20 @@ function StudentDashboard({ user, onLogout }) {
       if (!id) return
       classId = id
     }
-    
+
     setLoading(true)
     try {
-      const classData = await classAPI.get(classId)
-      
-      if (!classData.is_active) {
-        alert('This class is not currently active. Please wait for the teacher to start the session.')
-        return
+      // Enroll first (ignore if already enrolled)
+      try {
+        await classAPI.join(classId)
+      } catch (enrollError) {
+        if (!enrollError.message?.includes('Already enrolled')) {
+          throw enrollError
+        }
       }
-      
-      navigate(`/classroom/${classId}`, { state: { classData } })
+
+      // Always navigate — Classroom page handles waiting room vs live
+      navigate(`/classroom/${classId}`)
     } catch (error) {
       alert('Failed to join class: ' + error.message)
     } finally {
@@ -59,27 +62,8 @@ function StudentDashboard({ user, onLogout }) {
       alert('Please enter a Class ID')
       return
     }
-    
-    setLoading(true)
-    try {
-      // Try to enroll first (ignore if already enrolled)
-      try {
-        await classAPI.join(classToJoin)
-      } catch (enrollError) {
-        // If already enrolled, that's fine — continue to join
-        if (!enrollError.message?.includes('Already enrolled')) {
-          throw enrollError
-        }
-      }
-      
-      // Now navigate to the classroom
-      await handleJoinClass(classToJoin)
-    } catch (error) {
-      alert('Failed to join class: ' + error.message)
-    } finally {
-      setLoading(false)
-      setClassToJoin('')
-    }
+    await handleJoinClass(classToJoin)
+    setClassToJoin('')
   }
 
   const handleSendMessage = (e) => {

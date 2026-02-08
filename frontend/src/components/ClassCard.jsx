@@ -19,10 +19,10 @@ function ClassCard({ classItem, onJoin }) {
         </div>
         <span className={`px-3 py-1 text-xs font-medium rounded-full ${
           classItem.is_active 
-            ? 'bg-green-100 text-green-700' 
+            ? 'bg-green-100 text-green-700 animate-pulse' 
             : 'bg-yellow-100 text-yellow-700'
         }`}>
-          {classItem.is_active ? 'Live' : 'Upcoming'}
+          {classItem.is_active ? '● Live Now' : 'Upcoming'}
         </span>
       </div>
 
@@ -37,11 +37,21 @@ function ClassCard({ classItem, onJoin }) {
         </div>
       </div>
 
-      <div className="pt-3 border-t border-gray-100">
-        <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
+        <div className="text-xs text-gray-500">
           <span>{dateStr}</span>
-          <span>Duration: {classItem.duration_minutes || 60} min</span>
+          <span className="ml-3">Duration: {classItem.duration_minutes || 60} min</span>
         </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onJoin(classItem.class_id) }}
+          className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition ${
+            classItem.is_active
+              ? 'bg-green-600 text-white hover:bg-green-700'
+              : 'bg-blue-600 text-white hover:bg-blue-700'
+          }`}
+        >
+          {classItem.is_active ? 'Join Live' : 'Enter Class'}
+        </button>
       </div>
     </div>
   )
