@@ -117,7 +117,7 @@ Copy output and update `.env`:
 ```env
 SECRET_KEY=<your-generated-key>
 ```
-
+python -m pip install "pymongo[srv]==3.11"
 ### Step 4: Start the Server
 
 ```bash
