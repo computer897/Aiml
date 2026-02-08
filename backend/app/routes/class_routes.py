@@ -68,6 +68,46 @@ async def create_class(
     return ClassResponse(**class_doc)
 
 
+# ── Static routes MUST come before /{class_id} to avoid being shadowed ──
+
+@router.get("/teacher/classes", response_model=List[ClassResponse])
+async def get_teacher_classes(
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """
+    Get all classes created by the current teacher.
+    """
+    cursor = db.classes.find({"teacher_id": current_user.id})
+    classes = []
+    
+    async for class_doc in cursor:
+        class_doc["id"] = str(class_doc["_id"])
+        classes.append(ClassResponse(**class_doc))
+    
+    logger.info(f"✓ Retrieved {len(classes)} classes for teacher {current_user.name}")
+    return classes
+
+
+@router.get("/student/classes", response_model=List[ClassResponse])
+async def get_student_classes(
+    current_user: User = Depends(get_current_student),
+    db=Depends(get_db)
+):
+    """
+    Get all classes the current student is enrolled in.
+    """
+    cursor = db.classes.find({"enrolled_students": current_user.id})
+    classes = []
+    
+    async for class_doc in cursor:
+        class_doc["id"] = str(class_doc["_id"])
+        classes.append(ClassResponse(**class_doc))
+    
+    logger.info(f"✓ Retrieved {len(classes)} classes for student {current_user.name}")
+    return classes
+
+
 @router.get("/{class_id}", response_model=ClassResponse)
 async def get_class(
     class_id: str,
@@ -294,55 +334,4 @@ async def deactivate_class(
     }
 
 
-@router.get("/teacher/classes", response_model=List[ClassResponse])
-async def get_teacher_classes(
-    current_user: User = Depends(get_current_teacher),
-    db=Depends(get_db)
-):
-    """
-    Get all classes created by the current teacher.
-    
-    Args:
-        current_user: Authenticated teacher
-        db: Database instance
-        
-    Returns:
-        List of classes created by the teacher
-    """
-    cursor = db.classes.find({"teacher_id": current_user.id})
-    classes = []
-    
-    async for class_doc in cursor:
-        class_doc["id"] = str(class_doc["_id"])
-        classes.append(ClassResponse(**class_doc))
-    
-    logger.info(f"✓ Retrieved {len(classes)} classes for teacher {current_user.name}")
-    
-    return classes
-
-
-@router.get("/student/classes", response_model=List[ClassResponse])
-async def get_student_classes(
-    current_user: User = Depends(get_current_student),
-    db=Depends(get_db)
-):
-    """
-    Get all classes the current student is enrolled in.
-    
-    Args:
-        current_user: Authenticated student
-        db: Database instance
-        
-    Returns:
-        List of classes the student is enrolled in
-    """
-    cursor = db.classes.find({"enrolled_students": current_user.id})
-    classes = []
-    
-    async for class_doc in cursor:
-        class_doc["id"] = str(class_doc["_id"])
-        classes.append(ClassResponse(**class_doc))
-    
-    logger.info(f"✓ Retrieved {len(classes)} classes for student {current_user.name}")
-    
-    return classes
+# (teacher/classes and student/classes routes moved above /{class_id} to fix route ordering)
