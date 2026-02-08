@@ -1,5 +1,5 @@
 // API Base URL - uses VITE_API_URL env var in production, falls back to localhost for dev
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'https://aiml-1-rjdv.onrender.com').replace(/\/+$/, '')
 
 // Helper function to get auth token
 const getAuthToken = () => {
@@ -32,13 +32,26 @@ const apiRequest = async (endpoint, options = {}) => {
     const data = await response.json()
 
     if (!response.ok) {
-      throw new Error(data.detail || 'API request failed')
+      // FastAPI validation errors return detail as an array of objects
+      let message = 'API request failed'
+      if (typeof data.detail === 'string') {
+        message = data.detail
+      } else if (Array.isArray(data.detail)) {
+        message = data.detail
+          .map((err) => err.msg || JSON.stringify(err))
+          .join('. ')
+      }
+      throw new Error(message)
     }
 
     return data
   } catch (error) {
     console.error('API Error:', error)
-    throw error
+    // Ensure we always throw an Error with a string message
+    if (error instanceof Error) {
+      throw error
+    }
+    throw new Error(typeof error === 'string' ? error : 'Something went wrong. Please try again.')
   }
 }
 
