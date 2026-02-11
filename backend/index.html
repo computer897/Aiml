@@ -1,94 +1,268 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Group Video Call</title>
+  <title>Group Video Call Test</title>
   <style>
-    video { width: 240px; margin: 5px; border: 2px solid black; }
+    body { font-family: Arial, sans-serif; padding: 20px; background: #1a1a2e; color: white; }
+    h2 { color: #eee; }
+    .controls { margin: 20px 0; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; border: none; border-radius: 5px; }
+    .join-btn { background: #4ade80; color: black; }
+    .leave-btn { background: #ef4444; color: white; }
+    #videos { display: flex; flex-wrap: wrap; gap: 10px; }
+    .video-container { position: relative; }
+    video { width: 320px; border-radius: 10px; background: #333; }
+    .video-label { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 5px; font-size: 12px; }
+    .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+    .connected { background: #166534; }
+    .disconnected { background: #991b1b; }
+    select, input { padding: 8px; margin: 5px; border-radius: 5px; border: 1px solid #444; background: #333; color: white; }
   </style>
 </head>
 <body>
 
-<h2>Virtual Classroom – Group Call</h2>
+<h2>Virtual Classroom – WebRTC Test</h2>
+
+<div class="controls">
+  <input type="text" id="roomId" placeholder="Room ID" value="test-room" />
+  <select id="role">
+    <option value="teacher">Teacher</option>
+    <option value="student">Student</option>
+  </select>
+  <input type="text" id="userName" placeholder="Your Name" value="" />
+  <button class="join-btn" onclick="joinRoom()">Join Room</button>
+  <button class="leave-btn" onclick="leaveRoom()">Leave Room</button>
+</div>
+
+<div id="status" class="status disconnected">Disconnected</div>
+<div id="participants">Participants: 0</div>
 <div id="videos"></div>
 
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
-const socket = io("https://aiml-7kpb.onrender.com");
-const roomId = "classroom";
+let socket = null;
 const peers = {};
 const videos = document.getElementById("videos");
+const statusEl = document.getElementById("status");
+const participantsEl = document.getElementById("participants");
+let localStream = null;
+let localVideo = null;
 
-const localVideo = document.createElement("video");
-localVideo.autoplay = true;
-localVideo.muted = true;
-videos.appendChild(localVideo);
+// Generate random user name if empty
+document.getElementById("userName").value = "User_" + Math.random().toString(36).substr(2, 5);
 
-navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-.then(stream => {
-  localVideo.srcObject = stream;
+async function joinRoom() {
+  const roomId = document.getElementById("roomId").value;
+  const role = document.getElementById("role").value;
+  const userName = document.getElementById("userName").value;
 
-  socket.emit("join-room", roomId);
+  if (!roomId || !userName) {
+    alert("Please enter Room ID and Your Name");
+    return;
+  }
 
-  socket.on("existing-users", users => {
-    users.forEach(userId => createPeer(userId, stream, true));
+  // Get local media
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch (err) {
+    alert("Could not access camera/mic: " + err.message);
+    return;
+  }
+
+  // Show local video
+  localVideo = createVideoElement("You (" + role + ")", true);
+  localVideo.srcObject = localStream;
+  videos.appendChild(localVideo.parentElement);
+
+  // Connect to socket server
+  socket = io("http://localhost:5000");
+
+  socket.on("connect", () => {
+    statusEl.textContent = "Connected as " + role;
+    statusEl.className = "status connected";
+    
+    socket.emit("join-room", {
+      roomId: roomId,
+      role: role,
+      userId: socket.id,
+      userName: userName
+    });
   });
 
-  socket.on("user-joined", userId => {
-    createPeer(userId, stream);
+  socket.on("disconnect", () => {
+    statusEl.textContent = "Disconnected";
+    statusEl.className = "status disconnected";
   });
 
-  socket.on("offer", async data => {
-    const pc = createPeer(data.from, stream);
+  // Teacher receives existing students
+  socket.on("existing-students", (students) => {
+    console.log("Existing students:", students);
+    students.forEach(student => {
+      if (student.socketId) {
+        createPeer(student.socketId, true, student.userName);
+      }
+    });
+  });
+
+  // Teacher receives new student
+  socket.on("student-joined", (data) => {
+    console.log("Student joined:", data);
+    createPeer(data.socketId, true, data.userName);
+  });
+
+  // Student receives teacher info (waits for offer)
+  socket.on("teacher-info", (data) => {
+    console.log("Teacher info:", data);
+  });
+
+  socket.on("waiting-for-teacher", () => {
+    console.log("Waiting for teacher...");
+    statusEl.textContent = "Connected - Waiting for teacher";
+  });
+
+  // Handle offer
+  socket.on("offer", async (data) => {
+    console.log("Received offer from:", data.from);
+    const pc = createPeer(data.from, false, "Teacher");
     await pc.setRemoteDescription(data.offer);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    socket.emit("answer", { to: data.from, answer });
+    socket.emit("answer", { to: data.from, answer: answer });
   });
 
-  socket.on("answer", async data => {
-    await peers[data.from].setRemoteDescription(data.answer);
+  // Handle answer
+  socket.on("answer", async (data) => {
+    console.log("Received answer from:", data.from);
+    if (peers[data.from]) {
+      await peers[data.from].setRemoteDescription(data.answer);
+    }
   });
 
-  socket.on("ice-candidate", data => {
-    peers[data.from].addIceCandidate(data.candidate);
+  // Handle ICE candidate
+  socket.on("ice-candidate", (data) => {
+    if (peers[data.from] && data.candidate) {
+      peers[data.from].addIceCandidate(data.candidate);
+    }
   });
-});
 
-function createPeer(userId, stream, initiator = false) {
-  if (peers[userId]) return peers[userId];
+  // Participant updates
+  socket.on("participants-updated", (data) => {
+    const total = (data.teacher ? 1 : 0) + data.students.length;
+    participantsEl.textContent = "Participants: " + total + " (Teacher: " + (data.teacher ? "Yes" : "No") + ", Students: " + data.students.length + ")";
+  });
+
+  // Handle disconnections
+  socket.on("student-left", (data) => {
+    console.log("Student left:", data);
+    removePeer(data.socketId);
+  });
+
+  socket.on("teacher-left", (data) => {
+    console.log("Teacher left");
+    removePeer(data.socketId);
+  });
+}
+
+function createPeer(socketId, initiator, peerName) {
+  if (peers[socketId]) return peers[socketId];
+
+  console.log("Creating peer for:", socketId, "initiator:", initiator);
 
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   });
 
-  peers[userId] = pc;
+  peers[socketId] = pc;
 
-  stream.getTracks().forEach(track => pc.addTrack(track, stream));
+  // Add local tracks
+  localStream.getTracks().forEach(track => {
+    pc.addTrack(track, localStream);
+  });
 
-  pc.ontrack = e => {
-    const video = document.createElement("video");
-    video.autoplay = true;
-    video.srcObject = e.streams[0];
-    videos.appendChild(video);
-  };
-
-  pc.onicecandidate = e => {
-    if (e.candidate) {
-      socket.emit("ice-candidate", {
-        to: userId,
-        candidate: e.candidate
-      });
+  // Handle remote track
+  pc.ontrack = (e) => {
+    console.log("Received track from:", socketId);
+    let videoContainer = document.getElementById("video-" + socketId);
+    if (!videoContainer) {
+      const video = createVideoElement(peerName || "Participant");
+      video.srcObject = e.streams[0];
+      video.parentElement.id = "video-" + socketId;
+      videos.appendChild(video.parentElement);
     }
   };
 
+  // Handle ICE candidates
+  pc.onicecandidate = (e) => {
+    if (e.candidate) {
+      socket.emit("ice-candidate", { to: socketId, candidate: e.candidate });
+    }
+  };
+
+  // If initiator, create and send offer
   if (initiator) {
     pc.createOffer().then(offer => {
       pc.setLocalDescription(offer);
-      socket.emit("offer", { to: userId, offer });
+      socket.emit("offer", { to: socketId, offer: offer });
     });
   }
 
   return pc;
+}
+
+function removePeer(socketId) {
+  if (peers[socketId]) {
+    peers[socketId].close();
+    delete peers[socketId];
+  }
+  const videoContainer = document.getElementById("video-" + socketId);
+  if (videoContainer) {
+    videoContainer.remove();
+  }
+}
+
+function createVideoElement(label, muted = false) {
+  const container = document.createElement("div");
+  container.className = "video-container";
+  
+  const video = document.createElement("video");
+  video.autoplay = true;
+  video.playsInline = true;
+  if (muted) video.muted = true;
+  
+  const labelEl = document.createElement("div");
+  labelEl.className = "video-label";
+  labelEl.textContent = label;
+  
+  container.appendChild(video);
+  container.appendChild(labelEl);
+  
+  return video;
+}
+
+function leaveRoom() {
+  // Close all peer connections
+  Object.keys(peers).forEach(socketId => {
+    removePeer(socketId);
+  });
+
+  // Stop local stream
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+
+  // Disconnect socket
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+
+  // Clear videos
+  videos.innerHTML = "";
+  
+  statusEl.textContent = "Disconnected";
+  statusEl.className = "status disconnected";
+  participantsEl.textContent = "Participants: 0";
 }
 </script>
 

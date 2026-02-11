@@ -26,13 +26,13 @@ function AttendanceTable({ attendanceData }) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200">
-      <div className="p-6 border-b border-gray-200">
+    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-card overflow-hidden">
+      <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-900">Attendance Report</h2>
+          <h2 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white">Attendance Report</h2>
           <button
             onClick={handleDownload}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all"
+            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all text-xs sm:text-sm font-medium"
           >
             <Download className="w-4 h-4" />
             <span>Download Excel</span>

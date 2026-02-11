@@ -28,6 +28,18 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.7
 
+  # WebRTC Signaling Server - Node.js Socket.IO
+  - type: web
+    name: aiml-signaling
+    runtime: node
+    region: oregon
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: FRONTEND_URL
+        sync: false  # Set to your frontend Render URL (e.g., https://virtual-classroom-frontend.onrender.com)
+
   # Frontend - React Static Site
   - type: web
     name: virtual-classroom-frontend
@@ -47,3 +59,5 @@ services:
     envVars:
       - key: VITE_API_URL
         sync: false  # Set to your backend Render URL (e.g., https://virtual-classroom-api.onrender.com)
+      - key: VITE_SOCKET_URL
+        sync: false  # Set to your signaling server URL (e.g., https://aiml-signaling.onrender.com)

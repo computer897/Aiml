@@ -1,255 +1,388 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings, Video, GraduationCap, LogOut, Bell, BookOpen, Clock, MessageSquare } from 'lucide-react'
+import {
+  Video, Clock, BookOpen, Search, ArrowRight, Download, Eye,
+  Play, Calendar, Bell, Star, FileText, ChevronRight, Users
+} from 'lucide-react'
 import { classAPI } from '../services/api'
-import ClassCard from '../components/ClassCard'
-import NoteCard from '../components/NoteCard'
+import DashboardLayout from '../layouts/DashboardLayout'
+import {
+  scheduledClasses, weeklySchedule, teacherNotes,
+  recordedSessions, studentNotifications
+} from '../data/mockData'
+import StudentClassesTab from '../components/tabs/StudentClassesTab'
+import StudentNotesTab from '../components/tabs/StudentNotesTab'
+import StudentRecordingsTab from '../components/tabs/StudentRecordingsTab'
+import StudentChatTab from '../components/tabs/StudentChatTab'
+import StudentCalendarTab from '../components/tabs/StudentCalendarTab'
 
 function StudentDashboard({ user, onLogout }) {
   const navigate = useNavigate()
-  const [messageText, setMessageText] = useState('')
-  const [selectedTeacher, setSelectedTeacher] = useState('')
   const [enrolledClasses, setEnrolledClasses] = useState([])
   const [classToJoin, setClassToJoin] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Load enrolled classes on mount
-  useEffect(() => {
-    loadEnrolledClasses()
-  }, [])
+  useEffect(() => { loadEnrolledClasses() }, [])
 
   const loadEnrolledClasses = async () => {
     try {
       setLoading(true)
       const classes = await classAPI.getStudentClasses()
       setEnrolledClasses(classes)
-    } catch (error) {
-      console.error('Failed to load classes:', error)
-    } finally {
-      setLoading(false)
-    }
+    } catch { /* silent */ } finally { setLoading(false) }
   }
 
   const handleJoinClass = async (classId) => {
-    if (!classId) {
-      const id = prompt('Enter Class ID to join:')
-      if (!id) return
-      classId = id
-    }
-
+    if (!classId) { const id = prompt('Enter Class ID to join:'); if (!id) return; classId = id }
     setLoading(true)
     try {
-      // Enroll first (ignore if already enrolled)
-      try {
-        await classAPI.join(classId)
-      } catch (enrollError) {
-        if (!enrollError.message?.includes('Already enrolled')) {
-          throw enrollError
-        }
-      }
-
-      // Always navigate — Classroom page handles waiting room vs live
+      try { await classAPI.join(classId) } catch (e) { if (!e.message?.includes('Already enrolled')) throw e }
       navigate(`/classroom/${classId}`)
-    } catch (error) {
-      alert('Failed to join class: ' + error.message)
-    } finally {
-      setLoading(false)
-    }
+    } catch (error) { alert('Failed to join class: ' + error.message) } finally { setLoading(false) }
   }
 
   const handleJoinByClassId = async () => {
-    if (!classToJoin.trim()) {
-      alert('Please enter a Class ID')
-      return
-    }
-    await handleJoinClass(classToJoin)
-    setClassToJoin('')
+    if (!classToJoin.trim()) return alert('Please enter a Class ID')
+    await handleJoinClass(classToJoin); setClassToJoin('')
   }
 
-  const handleSendMessage = (e) => {
-    e.preventDefault()
-    if (messageText && selectedTeacher) {
-      alert(`Message sent to ${selectedTeacher}`)
-      setMessageText('')
-      setSelectedTeacher('')
+  const colorMap = {
+    primary: { bg: 'bg-primary-100 dark:bg-primary-900/30', text: 'text-primary-600 dark:text-primary-400', dot: 'bg-primary-500' },
+    purple: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400', dot: 'bg-purple-500' },
+    cyan: { bg: 'bg-cyan-100 dark:bg-cyan-900/30', text: 'text-cyan-600 dark:text-cyan-400', dot: 'bg-cyan-500' },
+    amber: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400', dot: 'bg-amber-500' },
+  }
+
+  const renderTabContent = (activeTab) => {
+    switch (activeTab) {
+      case 'classes':
+        return <StudentClassesTab onJoinClass={handleJoinClass} />
+      case 'notes':
+        return <StudentNotesTab />
+      case 'recordings':
+        return <StudentRecordingsTab />
+      case 'chat':
+        return <StudentChatTab />
+      case 'calendar':
+        return <StudentCalendarTab />
+      default:
+        return renderDashboard()
     }
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition">
-              <Settings className="w-6 h-6 text-gray-600" />
-            </button>
+  const renderDashboard = () => (
+    <div className="space-y-6">
 
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-                <GraduationCap className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xl font-bold text-gray-900 hidden sm:block">Virtual Classroom</span>
+        {/* ── Welcome Section ── */}
+        <div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-2xl p-5 sm:p-7 text-white relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-12 translate-x-12" />
+          <div className="absolute bottom-0 left-1/2 w-24 h-24 bg-white/5 rounded-full translate-y-8" />
+          <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold">
+                Welcome back, {user?.name || 'Student'}! 
+              </h1>
+              <p className="text-primary-200 mt-1 text-sm sm:text-base">Ready to continue learning?</p>
+              <span className="inline-block mt-3 px-3 py-1 bg-white/20 rounded-full text-xs font-semibold tracking-wide uppercase">
+                Student
+              </span>
             </div>
-
-            <div className="flex items-center gap-3">
-              <button className="p-2 hover:bg-gray-100 rounded-lg transition relative">
-                <Bell className="w-6 h-6 text-gray-600" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+            {/* Quick join */}
+            <div className="flex items-center gap-2 bg-white/15 backdrop-blur-md rounded-xl p-1.5">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60" />
+                <input
+                  value={classToJoin}
+                  onChange={e => setClassToJoin(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleJoinByClassId()}
+                  placeholder="Enter Class ID..."
+                  className="pl-9 pr-3 py-2.5 bg-transparent text-white placeholder:text-white/50 text-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-white/30 w-44 sm:w-52"
+                />
+              </div>
+              <button onClick={handleJoinByClassId} disabled={loading} className="px-4 py-2.5 bg-white text-primary-700 font-semibold text-sm rounded-lg hover:bg-white/90 transition flex items-center gap-1.5">
+                <Video className="w-4 h-4" />
+                Join
               </button>
-              <div className="flex items-center gap-2">
-                <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center">
-                  <span className="text-white font-semibold text-sm">
-                    {user?.name?.split(' ').map(n => n[0]).join('') || 'ST'}
-                  </span>
-                </div>
-                <button 
-                  onClick={onLogout}
-                  className="hidden sm:flex items-center gap-1 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Logout</span>
-                </button>
-              </div>
             </div>
           </div>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {user?.name || 'Student'}!
-          </h1>
-          <p className="text-gray-600">Ready to join your virtual classroom?</p>
-        </div>
+        {/* ── Main grid: 2 cols on desktop ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        <div className="mb-8">
-          <div className="flex gap-3 flex-col sm:flex-row">
-            <input
-              type="text"
-              value={classToJoin}
-              onChange={(e) => setClassToJoin(e.target.value)}
-              placeholder="Enter Class ID"
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-            />
-            <button
-              onClick={handleJoinByClassId}
-              disabled={loading}
-              className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-3 disabled:opacity-50"
-            >
-              <Video className="w-5 h-5" />
-              {loading ? 'Joining...' : 'Join Classroom'}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid lg:grid-cols-3 gap-6">
+          {/* LEFT COLUMN (2/3) */}
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <Clock className="w-6 h-6 text-blue-600" />
-                  Scheduled Classes
+
+            {/* ── Upcoming Classes ── */}
+            <section className="card-interactive overflow-hidden">
+              <div className="flex items-center justify-between p-5 pb-0">
+                <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-primary-500" />
+                  Upcoming Classes
+                </h2>
+                <span className="text-xs font-medium text-gray-400 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-full">
+                  {scheduledClasses.length} classes
+                </span>
+              </div>
+              <div className="p-5 space-y-3">
+                {scheduledClasses.map((cls, i) => {
+                  const c = colorMap[cls.color] || colorMap.primary
+                  return (
+                    <div key={cls.id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-800 hover:border-primary-200 dark:hover:border-primary-800 hover:shadow-sm transition-all group cursor-pointer"
+                      style={{ animationDelay: `${i * 60}ms` }}
+                    >
+                      <div className={`w-12 h-12 rounded-xl ${c.bg} flex items-center justify-center flex-shrink-0`}>
+                        <BookOpen className={`w-5 h-5 ${c.text}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{cls.subject}</h3>
+                          <span className={`w-1.5 h-1.5 rounded-full ${c.dot} flex-shrink-0`} />
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {cls.teacher} &middot; {cls.topic}
+                        </p>
+                        <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-400">
+                          <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{cls.date}</span>
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{cls.time}</span>
+                          <span className="flex items-center gap-1"><Users className="w-3 h-3" />{cls.studentCount}</span>
+                        </div>
+                      </div>
+                      <button onClick={() => handleJoinClass(cls.id)} className="px-3 py-2 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 transition opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                        Join <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+
+            {/* ── Class Schedule (Weekly Timetable) ── */}
+            <section className="card-interactive overflow-hidden">
+              <div className="flex items-center justify-between p-5 pb-0">
+                <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-cyan-500" />
+                  Class Schedule
                 </h2>
               </div>
+              <div className="p-5 overflow-x-auto">
+                <div className="min-w-[600px]">
+                  <div className="grid grid-cols-5 gap-3">
+                    {weeklySchedule.map(day => (
+                      <div key={day.day} className="space-y-2">
+                        <div className="text-center py-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                          <span className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase">{day.day}</span>
+                        </div>
+                        {day.slots.map((slot, i) => {
+                          const c = colorMap[slot.color] || colorMap.primary
+                          return (
+                            <div key={i} className={`p-2.5 rounded-lg border border-gray-100 dark:border-gray-800 ${c.bg} transition-all hover:scale-[1.02]`}>
+                              <p className={`text-[11px] font-bold ${c.text}`}>{slot.time}</p>
+                              <p className="text-xs font-semibold text-gray-900 dark:text-white mt-0.5 truncate">{slot.subject}</p>
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{slot.teacher}</p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
 
-              <div className="space-y-4">
-                {enrolledClasses.length > 0 ? (
-                  enrolledClasses.map((classItem) => (
-                    <ClassCard 
-                      key={classItem.id} 
-                      classItem={classItem} 
-                      onJoin={handleJoinClass} 
-                    />
-                  ))
+            {/* ── Notes Section ── */}
+            <section className="card-interactive overflow-hidden">
+              <div className="flex items-center justify-between p-5 pb-0">
+                <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-purple-500" />
+                  Notes
+                </h2>
+              </div>
+              <div className="p-5 space-y-3">
+                {teacherNotes.map(note => {
+                  const c = colorMap[note.color] || colorMap.primary
+                  return (
+                    <div key={note.id} className="flex items-start gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-800 hover:shadow-sm transition-all">
+                      <div className={`w-10 h-10 rounded-lg ${c.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                        <FileText className={`w-4 h-4 ${c.text}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{note.title}</h3>
+                          {note.isImportant && <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500 flex-shrink-0" />}
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {note.subject} &middot; {note.teacher}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1 line-clamp-1">{note.content}</p>
+                        {note.attachments.length > 0 && (
+                          <div className="flex items-center gap-2 mt-2.5">
+                            {note.attachments.map((file, i) => (
+                              <button key={i} className="flex items-center gap-1 px-2.5 py-1 bg-gray-100 dark:bg-gray-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                                <Download className="w-3 h-3" />
+                                {file}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0">
+                        <Eye className="w-4 h-4 text-gray-400" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+
+            {/* ── Recorded Sessions ── */}
+            <section className="card-interactive overflow-hidden">
+              <div className="flex items-center justify-between p-5 pb-0">
+                <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Video className="w-5 h-5 text-red-500" />
+                  Recorded Sessions
+                </h2>
+              </div>
+              <div className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {recordedSessions.map(rec => {
+                  const c = colorMap[rec.color] || colorMap.primary
+                  return (
+                    <div key={rec.id} className="group rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden hover:shadow-md transition-all">
+                      {/* Thumbnail placeholder */}
+                      <div className={`relative h-28 ${c.bg} flex items-center justify-center`}>
+                        <div className="w-12 h-12 bg-white/30 dark:bg-white/10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <Play className={`w-6 h-6 ${c.text} fill-current`} />
+                        </div>
+                        <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/60 text-white text-[10px] font-medium rounded">
+                          {rec.duration}
+                        </span>
+                      </div>
+                      <div className="p-3">
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{rec.className}</h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{rec.teacher}</p>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-[11px] text-gray-400">{rec.date}</span>
+                          <button className="text-[11px] font-semibold text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1">
+                            <Eye className="w-3 h-3" /> View
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          </div>
+
+          {/* RIGHT COLUMN (1/3) */}
+          <div className="space-y-6">
+
+            {/* ── Notifications / Announcements ── */}
+            <section className="card-interactive overflow-hidden lg:sticky lg:top-24">
+              <div className="flex items-center justify-between p-5 pb-0">
+                <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-amber-500" />
+                  Notifications
+                </h2>
+                <span className="text-[11px] text-primary-600 dark:text-primary-400 font-semibold cursor-pointer hover:underline">
+                  View All
+                </span>
+              </div>
+              <div className="p-5 space-y-3">
+                {studentNotifications.map(notif => (
+                  <div key={notif.id} className={`p-3.5 rounded-xl border transition-all hover:shadow-sm ${
+                    notif.isRead
+                      ? 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900'
+                      : 'border-primary-100 dark:border-primary-900/40 bg-primary-50/50 dark:bg-primary-900/10'
+                  }`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        notif.type === 'announcement' ? 'bg-blue-100 dark:bg-blue-900/30' :
+                        notif.type === 'reminder' ? 'bg-amber-100 dark:bg-amber-900/30' :
+                        'bg-green-100 dark:bg-green-900/30'
+                      }`}>
+                        <Bell className={`w-3.5 h-3.5 ${
+                          notif.type === 'announcement' ? 'text-blue-600' :
+                          notif.type === 'reminder' ? 'text-amber-600' :
+                          'text-green-600'
+                        }`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-xs font-semibold text-gray-900 dark:text-white">{notif.title}</h4>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{notif.message}</p>
+                        <p className="text-[10px] text-gray-400 mt-1.5">{notif.time}</p>
+                      </div>
+                      {!notif.isRead && <div className="w-2 h-2 bg-primary-500 rounded-full flex-shrink-0 mt-1" />}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* ── Enrolled Classes (from API) ── */}
+            <section className="card-interactive overflow-hidden">
+              <div className="flex items-center justify-between p-5 pb-0">
+                <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-green-500" />
+                  My Enrolled Classes
+                </h2>
+                <span className="text-xs font-medium text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+                  {enrolledClasses.length}
+                </span>
+              </div>
+              <div className="p-5">
+                {loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="w-7 h-7 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+                  </div>
+                ) : enrolledClasses.length > 0 ? (
+                  <div className="space-y-2">
+                    {enrolledClasses.map(cls => (
+                      <button
+                        key={cls.class_id}
+                        onClick={() => handleJoinClass(cls.class_id)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left group"
+                      >
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          cls.is_active ? 'bg-green-100 dark:bg-green-900/30' : 'bg-gray-100 dark:bg-gray-800'
+                        }`}>
+                          <Video className={`w-4 h-4 ${cls.is_active ? 'text-green-600' : 'text-gray-400'}`} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{cls.title}</p>
+                          <p className="text-[11px] text-gray-400 truncate">{cls.class_id}</p>
+                        </div>
+                        {cls.is_active && (
+                          <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px] font-semibold rounded-full">Live</span>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-primary-500 transition" />
+                      </button>
+                    ))}
+                  </div>
                 ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <p>No enrolled classes yet.</p>
-                    <p className="text-sm mt-2">Enter a Class ID above to join a class.</p>
+                  <div className="text-center py-8">
+                    <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-xl flex items-center justify-center mx-auto mb-3">
+                      <BookOpen className="w-6 h-6 text-gray-300 dark:text-gray-600" />
+                    </div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">No enrolled classes</p>
+                    <p className="text-xs text-gray-400 mt-1">Use Quick Join above</p>
                   </div>
                 )}
               </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <BookOpen className="w-6 h-6 text-purple-600" />
-                  Notes & Topics
-                </h2>
-              </div>
-
-              <div className="space-y-3">
-                <div className="text-center py-6 text-gray-500 text-sm">
-                  Notes will appear here when teachers share them
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sticky top-24">
-              <div className="flex items-center gap-2 mb-6">
-                <MessageSquare className="w-6 h-6 text-blue-600" />
-                <h2 className="text-xl font-bold text-gray-900">Message Teacher</h2>
-              </div>
-
-              <form onSubmit={handleSendMessage} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Teacher
-                  </label>
-                  <select
-                    value={selectedTeacher}
-                    onChange={(e) => setSelectedTeacher(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    required
-                  >
-                    <option value="">Choose a teacher</option>
-                    <option value="Dr. Sarah Johnson">Dr. Sarah Johnson</option>
-                    <option value="Prof. Michael Chen">Prof. Michael Chen</option>
-                    <option value="Dr. Emily Parker">Dr. Emily Parker</option>
-                    <option value="Prof. James Wilson">Prof. James Wilson</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Your Question/Message
-                  </label>
-                  <textarea
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="Type your question or doubt here..."
-                    rows={6}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-semibold hover:bg-blue-700 transition-all"
-                >
-                  Send Message
-                </button>
-              </form>
-
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                <h3 className="font-semibold text-blue-900 text-sm mb-2">Quick Tips</h3>
-                <ul className="text-xs text-blue-700 space-y-1">
-                  <li>• Be specific about your question</li>
-                  <li>• Include the topic if possible</li>
-                  <li>• Teachers usually respond within 24 hours</li>
-                </ul>
-              </div>
-            </div>
+            </section>
           </div>
         </div>
-      </main>
     </div>
+  )
+
+  return (
+    <DashboardLayout user={user} onLogout={onLogout} title="Dashboard">
+      {({ activeTab }) => (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 lg:py-8">
+          {renderTabContent(activeTab)}
+        </div>
+      )}
+    </DashboardLayout>
   )
 }
 
