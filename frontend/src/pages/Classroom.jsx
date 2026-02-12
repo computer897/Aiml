@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   Mic, MicOff, Video, VideoOff, MessageSquare, Phone,
   HelpCircle, Users, Monitor, Loader2, Clock, GraduationCap,
-  Shield, AlertCircle, MonitorUp, Hand, X
+  Shield, AlertCircle, MonitorUp, Hand, X, UserX
 } from 'lucide-react'
 import { classAPI, attendanceAPI, createWebSocket, webcamUtils } from '../services/api'
 import { createWebRTCManager } from '../services/webrtc'
@@ -272,6 +272,24 @@ function TeacherLeftBanner({ onLeave }) {
   )
 }
 
+// ─── Removed From Room Banner ────────────────────────────────────────────────
+function RemovedBanner({ onLeave }) {
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-800 rounded-2xl p-6 sm:p-8 max-w-md w-full text-center border border-gray-700">
+        <div className="w-16 h-16 bg-red-600/20 rounded-full flex items-center justify-center mx-auto mb-4">
+          <UserX className="w-8 h-8 text-red-400" />
+        </div>
+        <h2 className="text-white text-xl font-semibold mb-2">You&apos;ve been removed</h2>
+        <p className="text-gray-400 text-sm mb-6">The host has removed you from this meeting.</p>
+        <button onClick={onLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
+          Return to Dashboard
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Video Tile ──────────────────────────────────────────────────────────────
 function VideoTile({ stream, muted, mirrored, name, role, isLocal, videoOn }) {
   const videoRef = useRef(null)
@@ -353,7 +371,7 @@ function VideoGrid({ localStream, localVideoOn, remoteStreams, user, canvasRef }
             muted={false}
             mirrored={false}
             name={userInfo?.userName}
-            role={user?.role === 'student' ? 'teacher' : 'student'}
+            role={userInfo?.role || 'student'}
             isLocal={false}
           />
         </div>
@@ -372,7 +390,7 @@ function VideoGrid({ localStream, localVideoOn, remoteStreams, user, canvasRef }
 }
 
 // ─── Participants Panel ──────────────────────────────────────────────────────
-function ParticipantsPanel({ participants, user }) {
+function ParticipantsPanel({ participants, user, onMuteUser, onRemoveUser }) {
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-gray-700">
@@ -399,7 +417,7 @@ function ParticipantsPanel({ participants, user }) {
 
         {/* Students */}
         {participants.students?.map(student => (
-          <div key={student.socketId} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-700/50">
+          <div key={student.socketId} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-700/50 group">
             <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
               <span className="text-white text-xs font-semibold">
                 {(student.userName || '?').split(' ').map(n => n[0]).join('')}
@@ -411,6 +429,25 @@ function ParticipantsPanel({ participants, user }) {
                 {student.userId === (user?.id || user?._id) && ' (You)'}
               </p>
             </div>
+            {/* Teacher controls: mute & remove */}
+            {user?.role === 'teacher' && (
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => onMuteUser?.(student.socketId)}
+                  className="p-1.5 rounded-full hover:bg-gray-600 transition"
+                  title={`Mute ${student.userName}`}
+                >
+                  <MicOff className="w-3.5 h-3.5 text-gray-400" />
+                </button>
+                <button
+                  onClick={() => onRemoveUser?.(student.socketId)}
+                  className="p-1.5 rounded-full hover:bg-red-600/50 transition"
+                  title={`Remove ${student.userName}`}
+                >
+                  <UserX className="w-3.5 h-3.5 text-gray-400" />
+                </button>
+              </div>
+            )}
           </div>
         ))}
 
@@ -448,6 +485,8 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
   const [students, setStudents] = useState([])
   const [attendanceId, setAttendanceId] = useState(null)
   const [teacherLeft, setTeacherLeft] = useState(false)
+  const [forceMuteNotice, setForceMuteNotice] = useState(false)
+  const [removedFromRoom, setRemovedFromRoom] = useState(false)
 
   // WebRTC state
   const [remoteStreams, setRemoteStreams] = useState({})
@@ -535,6 +574,18 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
           time: new Date(data.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           status: 'pending',
         }])
+      }
+
+      // Teacher force-muted this student
+      rtc.callbacks.onForceMuted = () => {
+        setMicOn(false)
+        setForceMuteNotice(true)
+        setTimeout(() => setForceMuteNotice(false), 3000)
+      }
+
+      // Teacher removed this student from the room
+      rtc.callbacks.onForceRemoved = () => {
+        setRemovedFromRoom(true)
       }
 
       // Join the room
@@ -682,6 +733,19 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
     }
   }
 
+  const handleMuteUser = (targetSocketId) => {
+    if (webrtcRef.current) {
+      webrtcRef.current.muteUser(targetSocketId)
+    }
+  }
+
+  const handleRemoveUser = (targetSocketId) => {
+    if (!window.confirm('Remove this student from the meeting?')) return
+    if (webrtcRef.current) {
+      webrtcRef.current.removeUser(targetSocketId)
+    }
+  }
+
   const handleScreenShare = async () => {
     if (!webrtcRef.current) return
     if (isScreenSharing) {
@@ -707,6 +771,17 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
     <div className="h-[100dvh] bg-gray-900 flex flex-col overflow-hidden">
       {/* Teacher Left overlay */}
       {teacherLeft && user?.role === 'student' && <TeacherLeftBanner onLeave={onLeave} />}
+
+      {/* Removed from room overlay */}
+      {removedFromRoom && <RemovedBanner onLeave={onLeave} />}
+
+      {/* Force mute toast */}
+      {forceMuteNotice && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2.5 bg-gray-800 border border-gray-600 rounded-lg shadow-lg flex items-center gap-2">
+          <MicOff className="w-4 h-4 text-red-400" />
+          <p className="text-white text-sm">You were muted by the host</p>
+        </div>
+      )}
 
       {/* ── Top Bar ── */}
       <div className="bg-gray-800 border-b border-gray-700 px-3 sm:px-4 py-2 sm:py-3 flex-shrink-0">
@@ -875,7 +950,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
               />
             )}
             {showEngagement && user?.role === 'teacher' && <EngagementList students={students} />}
-            {showParticipants && <ParticipantsPanel participants={participants} user={user} />}
+            {showParticipants && <ParticipantsPanel participants={participants} user={user} onMuteUser={handleMuteUser} onRemoveUser={handleRemoveUser} />}
           </div>
         )}
 
@@ -900,7 +975,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
                   />
                 )}
                 {showEngagement && user?.role === 'teacher' && <EngagementList students={students} />}
-                {showParticipants && <ParticipantsPanel participants={participants} user={user} />}
+                {showParticipants && <ParticipantsPanel participants={participants} user={user} onMuteUser={handleMuteUser} onRemoveUser={handleRemoveUser} />}
               </div>
             </div>
           </div>

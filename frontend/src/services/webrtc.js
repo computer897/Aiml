@@ -1,7 +1,7 @@
 /**
  * WebRTC Service for Virtual Classroom
- * Architecture: Star topology - Teacher connects with each student individually
- * Students only connect with the teacher (not with each other)
+ * Architecture: Mesh topology - All participants connect with each other
+ * Teacher connects with each student, and students connect with each other
  * Uses Socket.IO for signaling
  */
 
@@ -17,7 +17,7 @@ const ICE_SERVERS = [
 
 /**
  * Creates a fresh WebRTC manager instance per classroom session.
- * Do NOT reuse across sessions - call cleanup() and create a new one.
+ * Do NOT reuse across sessions - call leaveRoom() and create a new one.
  */
 export function createWebRTCManager() {
   let socket = null
@@ -43,6 +43,8 @@ export function createWebRTCManager() {
     onScreenShare: null,         // (socketId, stream, userInfo) => {}
     onScreenShareStopped: null,  // (socketId) => {}
     onHandRaised: null,          // ({ socketId, userId, userName, question, time }) => {}
+    onForceMuted: null,          // ({ by, byName }) => {}
+    onForceRemoved: null,        // ({ by, byName }) => {}
   }
 
   function connect() {
@@ -79,40 +81,38 @@ export function createWebRTCManager() {
   }
 
   function setupSignalingHandlers() {
-    // Teacher: receive list of students already in room
-    socket.on('existing-students', (students) => {
-      console.log('[WebRTC] Existing students:', students)
-      students.forEach(student => {
-        if (student.socketId) {
-          createPeerConnection(student.socketId, true, {
-            userId: student.userId,
-            userName: student.userName
-          })
-        }
-      })
+    // ── Mesh: receive existing participants on join (informational) ──
+    // Existing participants will send offers to us automatically
+    socket.on('existing-participants', (participants) => {
+      console.log('[WebRTC] Existing participants:', participants)
     })
 
-    // Teacher: new student joined
-    socket.on('student-joined', (data) => {
-      console.log('[WebRTC] Student joined:', data)
+    // ── Mesh: a new user joined — WE (existing user) initiate peer connection ──
+    socket.on('user-joined', (data) => {
+      console.log('[WebRTC] User joined:', data)
       createPeerConnection(data.socketId, true, {
         userId: data.userId,
-        userName: data.userName
+        userName: data.userName,
+        role: data.role
       })
     })
 
-    // Student: receive teacher info (just informational)
-    socket.on('teacher-info', (data) => {
-      console.log('[WebRTC] Teacher info:', data)
+    // ── Mesh: a user left — close their peer connection ──
+    socket.on('user-left', (data) => {
+      console.log('[WebRTC] User left:', data)
+      closePeerConnection(data.socketId)
+      if (data.role === 'teacher') {
+        callbacks.onTeacherLeft?.()
+      }
     })
 
-    // Student: waiting for teacher
+    // Student: waiting for teacher to start
     socket.on('waiting-for-teacher', () => {
       console.log('[WebRTC] Waiting for teacher')
       callbacks.onWaitingForTeacher?.()
     })
 
-    // Receive WebRTC offer (student receives from teacher)
+    // ── Receive WebRTC offer (from any existing participant in mesh) ──
     socket.on('offer', async (data) => {
       console.log('[WebRTC] Received offer from:', data.from)
       // Close any existing connection to this peer first
@@ -131,7 +131,7 @@ export function createWebRTCManager() {
       }
     })
 
-    // Receive WebRTC answer (teacher receives from student)
+    // ── Receive WebRTC answer ──
     socket.on('answer', async (data) => {
       console.log('[WebRTC] Received answer from:', data.from)
       const pc = peers[data.from]
@@ -144,7 +144,7 @@ export function createWebRTCManager() {
       }
     })
 
-    // Receive ICE candidate
+    // ── Receive ICE candidate ──
     socket.on('ice-candidate', async (data) => {
       const pc = peers[data.from]
       if (pc && data.candidate) {
@@ -159,19 +159,6 @@ export function createWebRTCManager() {
     // Participant updates
     socket.on('participants-updated', (participants) => {
       callbacks.onParticipantsUpdated?.(participants)
-    })
-
-    // Student left
-    socket.on('student-left', (data) => {
-      console.log('[WebRTC] Student left:', data)
-      closePeerConnection(data.socketId)
-    })
-
-    // Teacher left
-    socket.on('teacher-left', (data) => {
-      console.log('[WebRTC] Teacher left:', data)
-      closePeerConnection(data.socketId)
-      callbacks.onTeacherLeft?.()
     })
 
     // Chat message received
@@ -194,6 +181,18 @@ export function createWebRTCManager() {
     socket.on('hand-raised', (data) => {
       console.log('[WebRTC] Hand raised by:', data.userName)
       callbacks.onHandRaised?.(data)
+    })
+
+    // ── Teacher Control: force mute received ──
+    socket.on('force-mute', (data) => {
+      console.log('[WebRTC] Force muted by teacher:', data.byName)
+      callbacks.onForceMuted?.(data)
+    })
+
+    // ── Teacher Control: force remove received ──
+    socket.on('force-remove', (data) => {
+      console.log('[WebRTC] Removed from room by teacher:', data.byName)
+      callbacks.onForceRemoved?.(data)
     })
   }
 
@@ -241,7 +240,6 @@ export function createWebRTCManager() {
     pc.onconnectionstatechange = () => {
       console.log(`[WebRTC] Peer ${socketId} state:`, pc.connectionState)
       if (pc.connectionState === 'failed') {
-        // Attempt reconnection
         closePeerConnection(socketId)
       }
     }
@@ -250,7 +248,7 @@ export function createWebRTCManager() {
       console.log(`[WebRTC] Peer ${socketId} ICE:`, pc.iceConnectionState)
     }
 
-    // Initiator (teacher) creates and sends offer
+    // Initiator creates and sends offer
     if (initiator) {
       pc.createOffer()
         .then(offer => pc.setLocalDescription(offer))
@@ -258,7 +256,7 @@ export function createWebRTCManager() {
           socket.emit('offer', {
             to: socketId,
             offer: pc.localDescription,
-            userInfo: { userId, userName }
+            userInfo: { userId, userName, role }
           })
         })
         .catch(error => console.error('[WebRTC] Error creating offer:', error))
@@ -341,6 +339,18 @@ export function createWebRTCManager() {
   function raiseHand(question) {
     if (!socket || !roomId) return
     socket.emit('raise-hand', { roomId, question })
+  }
+
+  // ── Teacher Controls ──
+
+  function muteUser(targetSocketId) {
+    if (!socket || !roomId || role !== 'teacher') return
+    socket.emit('mute-user', { roomId, targetSocketId })
+  }
+
+  function removeUser(targetSocketId) {
+    if (!socket || !roomId || role !== 'teacher') return
+    socket.emit('remove-user', { roomId, targetSocketId })
   }
 
   async function startScreenShare() {
@@ -452,6 +462,8 @@ export function createWebRTCManager() {
     updateLocalStream,
     sendChatMessage,
     raiseHand,
+    muteUser,
+    removeUser,
     startScreenShare,
     stopScreenShare,
     isConnected,

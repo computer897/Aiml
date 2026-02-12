@@ -62,10 +62,38 @@ function broadcastParticipants(roomId) {
   io.to(roomId).emit("participants-updated", participants);
 }
 
+// Returns all participants in a room except the given socketId (for mesh topology)
+function getAllParticipantsExcept(roomId, excludeSocketId) {
+  const room = rooms[roomId];
+  if (!room) return [];
+  const all = [];
+  if (room.teacher && room.teacher !== excludeSocketId) {
+    const ts = io.sockets.sockets.get(room.teacher);
+    all.push({
+      socketId: room.teacher,
+      userId: ts?.userId,
+      userName: ts?.userName,
+      role: "teacher"
+    });
+  }
+  (room.students || []).forEach(sid => {
+    if (sid !== excludeSocketId) {
+      const s = io.sockets.sockets.get(sid);
+      all.push({
+        socketId: sid,
+        userId: s?.userId,
+        userName: s?.userName,
+        role: "student"
+      });
+    }
+  });
+  return all;
+}
+
 io.on("connection", socket => {
   console.log("User connected:", socket.id);
 
-  // ── Join Room ──
+  // ── Join Room (mesh topology: all participants see each other) ──
   socket.on("join-room", data => {
     const { roomId, role, userId, userName } = data;
     console.log(`[join-room] ${role} "${userName}" (${socket.id}) -> room ${roomId}`);
@@ -82,34 +110,27 @@ io.on("connection", socket => {
 
     if (role === "teacher") {
       rooms[roomId].teacher = socket.id;
-
-      const existingStudents = rooms[roomId].students.map(sid => {
-        const studentSocket = io.sockets.sockets.get(sid);
-        return {
-          socketId: sid,
-          userId: studentSocket?.userId,
-          userName: studentSocket?.userName
-        };
-      });
-      socket.emit("existing-students", existingStudents);
-
     } else if (role === "student") {
       if (!rooms[roomId].students.includes(socket.id)) {
         rooms[roomId].students.push(socket.id);
       }
+    }
 
-      if (rooms[roomId].teacher) {
-        io.to(rooms[roomId].teacher).emit("student-joined", {
-          socketId: socket.id,
-          userId,
-          userName
-        });
-        socket.emit("teacher-info", {
-          teacherSocketId: rooms[roomId].teacher
-        });
-      } else {
-        socket.emit("waiting-for-teacher");
-      }
+    // Send all existing participants to the new joiner (they will receive offers from these users)
+    const existingParticipants = getAllParticipantsExcept(roomId, socket.id);
+    socket.emit("existing-participants", existingParticipants);
+
+    // Notify all existing members — they will initiate WebRTC peer connections to the new user
+    socket.to(roomId).emit("user-joined", {
+      socketId: socket.id,
+      userId,
+      userName,
+      role
+    });
+
+    // If student joined but no teacher yet, inform them
+    if (role === "student" && !rooms[roomId].teacher) {
+      socket.emit("waiting-for-teacher");
     }
 
     broadcastParticipants(roomId);
@@ -120,7 +141,7 @@ io.on("connection", socket => {
     io.to(data.to).emit("offer", {
       from: socket.id,
       offer: data.offer,
-      userInfo: data.userInfo || { userId: socket.userId, userName: socket.userName }
+      userInfo: data.userInfo || { userId: socket.userId, userName: socket.userName, role: socket.role }
     });
   });
 
@@ -142,7 +163,6 @@ io.on("connection", socket => {
   socket.on("chat-message", data => {
     const { roomId, message } = data;
     if (!roomId) return;
-    // Broadcast to everyone in the room including sender
     io.to(roomId).emit("chat-message", message);
   });
 
@@ -180,24 +200,79 @@ io.on("connection", socket => {
     }
   });
 
+  // ── Teacher Control: Mute a student ──
+  socket.on("mute-user", data => {
+    const { roomId, targetSocketId } = data;
+    if (!roomId || !targetSocketId) return;
+    const room = rooms[roomId];
+    // Only teacher can mute
+    if (!room || room.teacher !== socket.id) return;
+    io.to(targetSocketId).emit("force-mute", {
+      by: socket.id,
+      byName: socket.userName
+    });
+    console.log(`[mute-user] Teacher "${socket.userName}" muted ${targetSocketId} in room ${roomId}`);
+  });
+
+  // ── Teacher Control: Remove a student ──
+  socket.on("remove-user", data => {
+    const { roomId, targetSocketId } = data;
+    if (!roomId || !targetSocketId) return;
+    const room = rooms[roomId];
+    // Only teacher can remove
+    if (!room || room.teacher !== socket.id) return;
+
+    const targetSocket = io.sockets.sockets.get(targetSocketId);
+
+    // Notify the target student they've been removed
+    io.to(targetSocketId).emit("force-remove", {
+      by: socket.id,
+      byName: socket.userName
+    });
+
+    // Remove from room
+    room.students = room.students.filter(id => id !== targetSocketId);
+
+    // Notify everyone else in the room
+    socket.to(roomId).emit("user-left", {
+      socketId: targetSocketId,
+      userId: targetSocket?.userId,
+      userName: targetSocket?.userName,
+      role: "student"
+    });
+
+    // Detach target from room (but don't disconnect their socket entirely)
+    if (targetSocket) {
+      targetSocket.leave(roomId);
+      targetSocket.roomId = null;
+    }
+
+    broadcastParticipants(roomId);
+    console.log(`[remove-user] Teacher "${socket.userName}" removed ${targetSocketId} from room ${roomId}`);
+  });
+
   // ── Disconnect ──
   socket.on("disconnect", () => {
     const roomId = socket.roomId;
 
     if (roomId && rooms[roomId]) {
-      if (rooms[roomId].teacher === socket.id) {
+      const isTeacher = rooms[roomId].teacher === socket.id;
+
+      if (isTeacher) {
         rooms[roomId].teacher = null;
         console.log(`Teacher "${socket.userName}" (${socket.id}) left room ${roomId}`);
-        socket.to(roomId).emit("teacher-left", { socketId: socket.id });
       } else {
         rooms[roomId].students = rooms[roomId].students.filter(id => id !== socket.id);
         console.log(`Student "${socket.userName}" (${socket.id}) left room ${roomId}`);
-        socket.to(roomId).emit("student-left", {
-          socketId: socket.id,
-          userId: socket.userId,
-          userName: socket.userName
-        });
       }
+
+      // Broadcast user-left to all remaining participants
+      socket.to(roomId).emit("user-left", {
+        socketId: socket.id,
+        userId: socket.userId,
+        userName: socket.userName,
+        role: isTeacher ? "teacher" : "student"
+      });
 
       broadcastParticipants(roomId);
 
