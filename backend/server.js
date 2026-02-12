@@ -9,7 +9,7 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
-  "https://virtual-classroom-frontend.onrender.com",
+  "https://vcroom.netlify.app",
   "https://aiml-frontend.onrender.com",
   process.env.FRONTEND_URL
 ].filter(Boolean);
@@ -32,15 +32,33 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", rooms: Object.keys(rooms).length });
 });
 
-// Room structure: { classroomId: { teacher: socketId, students: [socketId1, ...] } }
+// Room structure: { classroomId: { host: socketId, participants: [socketId1, ...], waitingStudents: [] } }
+// Note: "host" is the teacher, "participants" includes approved students
 const rooms = {};
+
+// Helper: Check if a socket is an approved participant (host or in participants list)
+function isApprovedParticipant(roomId, socketId) {
+  const room = rooms[roomId];
+  if (!room) return false;
+  return room.host === socketId || (room.participants || []).includes(socketId);
+}
 
 function getParticipants(roomId) {
   const room = rooms[roomId];
-  if (!room) return { teacher: null, students: [], count: 0 };
+  if (!room) return { teacher: null, students: [], count: 0, waitingStudents: [] };
 
-  const teacherSocket = room.teacher ? io.sockets.sockets.get(room.teacher) : null;
-  const studentInfos = (room.students || []).map(sid => {
+  const teacherSocket = room.host ? io.sockets.sockets.get(room.host) : null;
+  const studentInfos = (room.participants || []).map(sid => {
+    const s = io.sockets.sockets.get(sid);
+    return {
+      socketId: sid,
+      userId: s?.userId,
+      userName: s?.userName
+    };
+  });
+
+  // Get waiting students info
+  const waitingInfos = (room.waitingStudents || []).map(sid => {
     const s = io.sockets.sockets.get(sid);
     return {
       socketId: sid,
@@ -50,10 +68,11 @@ function getParticipants(roomId) {
   });
 
   return {
-    teacher: room.teacher,
+    teacher: room.host,
     teacherName: teacherSocket?.userName || null,
     students: studentInfos,
-    count: studentInfos.length + (room.teacher ? 1 : 0)
+    count: studentInfos.length + (room.host ? 1 : 0),
+    waitingStudents: waitingInfos
   };
 }
 
@@ -67,16 +86,16 @@ function getAllParticipantsExcept(roomId, excludeSocketId) {
   const room = rooms[roomId];
   if (!room) return [];
   const all = [];
-  if (room.teacher && room.teacher !== excludeSocketId) {
-    const ts = io.sockets.sockets.get(room.teacher);
+  if (room.host && room.host !== excludeSocketId) {
+    const ts = io.sockets.sockets.get(room.host);
     all.push({
-      socketId: room.teacher,
+      socketId: room.host,
       userId: ts?.userId,
       userName: ts?.userName,
       role: "teacher"
     });
   }
-  (room.students || []).forEach(sid => {
+  (room.participants || []).forEach(sid => {
     if (sid !== excludeSocketId) {
       const s = io.sockets.sockets.get(sid);
       all.push({
@@ -93,7 +112,121 @@ function getAllParticipantsExcept(roomId, excludeSocketId) {
 io.on("connection", socket => {
   console.log("User connected:", socket.id);
 
-  // ── Join Room (mesh topology: all participants see each other) ──
+  // ── Request Join (Student requests to join, goes to waiting room) ──
+  socket.on("request-join", data => {
+    const { roomId, userId, userName } = data;
+    console.log(`[request-join] Student "${userName}" (${socket.id}) requesting to join room ${roomId}`);
+
+    socket.roomId = roomId;
+    socket.role = "student";
+    socket.userId = userId;
+    socket.userName = userName;
+    socket.isApproved = false;
+
+    if (!rooms[roomId]) {
+      rooms[roomId] = { host: null, participants: [], waitingStudents: [] };
+    }
+
+    // Add to waiting students if not already there
+    if (!rooms[roomId].waitingStudents.includes(socket.id)) {
+      rooms[roomId].waitingStudents.push(socket.id);
+    }
+
+    // Notify the host (teacher) about the join request
+    if (rooms[roomId].host) {
+      io.to(rooms[roomId].host).emit("join-request", {
+        socketId: socket.id,
+        userId,
+        userName,
+        time: new Date().toISOString()
+      });
+      socket.emit("waiting-for-approval");
+    } else {
+      // No teacher yet - inform student they're waiting
+      socket.emit("waiting-for-teacher");
+    }
+  });
+
+  // ── Accept Student (Teacher accepts a student from waiting room) ──
+  socket.on("accept-student", data => {
+    const { studentSocketId, roomId } = data;
+    const room = rooms[roomId];
+
+    // Only host can accept students
+    if (!room || room.host !== socket.id) {
+      console.log(`[accept-student] Unauthorized: ${socket.id} is not host of room ${roomId}`);
+      return;
+    }
+
+    const studentSocket = io.sockets.sockets.get(studentSocketId);
+    if (!studentSocket) {
+      console.log(`[accept-student] Student socket ${studentSocketId} not found`);
+      return;
+    }
+
+    // Move student from waitingStudents to participants
+    room.waitingStudents = room.waitingStudents.filter(id => id !== studentSocketId);
+    if (!room.participants.includes(studentSocketId)) {
+      room.participants.push(studentSocketId);
+    }
+
+    // Mark student as approved
+    studentSocket.isApproved = true;
+
+    // Join the student to the Socket.IO room for signaling
+    studentSocket.join(roomId);
+
+    // Send approval to student - they can now start WebRTC
+    io.to(studentSocketId).emit("join-approved", {
+      roomId,
+      message: "You have been admitted to the meeting"
+    });
+
+    // Send existing participants to the new student
+    const existingParticipants = getAllParticipantsExcept(roomId, studentSocketId);
+    io.to(studentSocketId).emit("existing-participants", existingParticipants);
+
+    // Notify all existing members about the new student
+    studentSocket.to(roomId).emit("user-joined", {
+      socketId: studentSocketId,
+      userId: studentSocket.userId,
+      userName: studentSocket.userName,
+      role: "student"
+    });
+
+    broadcastParticipants(roomId);
+    console.log(`[accept-student] Teacher "${socket.userName}" accepted student "${studentSocket.userName}" in room ${roomId}`);
+  });
+
+  // ── Reject Student (Teacher rejects a student from waiting room) ──
+  socket.on("reject-student", data => {
+    const { studentSocketId, roomId } = data;
+    const room = rooms[roomId];
+
+    // Only host can reject students
+    if (!room || room.host !== socket.id) {
+      console.log(`[reject-student] Unauthorized: ${socket.id} is not host of room ${roomId}`);
+      return;
+    }
+
+    const studentSocket = io.sockets.sockets.get(studentSocketId);
+
+    // Remove from waiting list
+    room.waitingStudents = room.waitingStudents.filter(id => id !== studentSocketId);
+
+    // Notify the student they were rejected
+    if (studentSocket) {
+      io.to(studentSocketId).emit("join-rejected", {
+        message: "Your request to join was denied by the host"
+      });
+      studentSocket.roomId = null;
+      studentSocket.isApproved = false;
+    }
+
+    console.log(`[reject-student] Teacher "${socket.userName}" rejected student socket ${studentSocketId} from room ${roomId}`);
+  });
+
+  // ── Join Room (Teacher joins directly, Student joins only after approval) ──
   socket.on("join-room", data => {
     const { roomId, role, userId, userName } = data;
     console.log(`[join-room] ${role} "${userName}" (${socket.id}) -> room ${roomId}`);
@@ -105,22 +238,59 @@ io.on("connection", socket => {
     socket.userName = userName;
 
     if (!rooms[roomId]) {
-      rooms[roomId] = { teacher: null, students: [] };
+      rooms[roomId] = { host: null, participants: [], waitingStudents: [] };
     }
 
     if (role === "teacher") {
-      rooms[roomId].teacher = socket.id;
+      rooms[roomId].host = socket.id;
+      socket.isApproved = true;
+
+      // When teacher joins, notify all waiting students that teacher is here
+      // and send pending join requests to the teacher
+      const waitingStudents = rooms[roomId].waitingStudents || [];
+      waitingStudents.forEach(studentSocketId => {
+        const studentSocket = io.sockets.sockets.get(studentSocketId);
+        if (studentSocket) {
+          // Notify teacher about each waiting student
+          socket.emit("join-request", {
+            socketId: studentSocketId,
+            userId: studentSocket.userId,
+            userName: studentSocket.userName,
+            time: new Date().toISOString()
+          });
+        }
+      });
     } else if (role === "student") {
-      if (!rooms[roomId].students.includes(socket.id)) {
-        rooms[roomId].students.push(socket.id);
+      // Students should use request-join first, but if they call join-room directly
+      // and are already approved, allow them
+      if (socket.isApproved) {
+        if (!rooms[roomId].participants.includes(socket.id)) {
+          rooms[roomId].participants.push(socket.id);
+        }
+      } else {
+        // Not approved - redirect to waiting room
+        socket.emit("waiting-for-approval");
+        if (!rooms[roomId].waitingStudents.includes(socket.id)) {
+          rooms[roomId].waitingStudents.push(socket.id);
+        }
+        // Notify teacher
+        if (rooms[roomId].host) {
+          io.to(rooms[roomId].host).emit("join-request", {
+            socketId: socket.id,
+            userId,
+            userName,
+            time: new Date().toISOString()
+          });
+        }
+        return; // Don't proceed with normal join flow
       }
     }
 
-    // Send all existing participants to the new joiner (they will receive offers from these users)
+    // Send all existing participants to the new joiner
     const existingParticipants = getAllParticipantsExcept(roomId, socket.id);
     socket.emit("existing-participants", existingParticipants);
 
-    // Notify all existing members — they will initiate WebRTC peer connections to the new user
+    // Notify all existing members — they will initiate WebRTC peer connections
     socket.to(roomId).emit("user-joined", {
       socketId: socket.id,
       userId,
@@ -128,16 +298,16 @@ io.on("connection", socket => {
       role
     });
 
-    // If student joined but no teacher yet, inform them
-    if (role === "student" && !rooms[roomId].teacher) {
-      socket.emit("waiting-for-teacher");
-    }
-
     broadcastParticipants(roomId);
   });
 
-  // ── WebRTC Signaling ──
+  // ── WebRTC Signaling (with approval validation) ──
   socket.on("offer", data => {
+    // Block signaling if sender is not an approved participant
+    if (!isApprovedParticipant(socket.roomId, socket.id)) {
+      console.log(`[offer] Blocked: ${socket.id} is not approved in room ${socket.roomId}`);
+      return;
+    }
     io.to(data.to).emit("offer", {
       from: socket.id,
       offer: data.offer,
@@ -146,6 +316,11 @@ io.on("connection", socket => {
   });
 
   socket.on("answer", data => {
+    // Block signaling if sender is not an approved participant
+    if (!isApprovedParticipant(socket.roomId, socket.id)) {
+      console.log(`[answer] Blocked: ${socket.id} is not approved in room ${socket.roomId}`);
+      return;
+    }
     io.to(data.to).emit("answer", {
       from: socket.id,
       answer: data.answer
@@ -153,6 +328,11 @@ io.on("connection", socket => {
   });
 
   socket.on("ice-candidate", data => {
+    // Block signaling if sender is not an approved participant
+    if (!isApprovedParticipant(socket.roomId, socket.id)) {
+      console.log(`[ice-candidate] Blocked: ${socket.id} is not approved in room ${socket.roomId}`);
+      return;
+    }
     io.to(data.to).emit("ice-candidate", {
       from: socket.id,
       candidate: data.candidate
@@ -189,8 +369,8 @@ io.on("connection", socket => {
     const { roomId, question } = data;
     if (!roomId) return;
     const room = rooms[roomId];
-    if (room && room.teacher) {
-      io.to(room.teacher).emit("hand-raised", {
+    if (room && room.host) {
+      io.to(room.host).emit("hand-raised", {
         socketId: socket.id,
         userId: socket.userId,
         userName: socket.userName,
@@ -205,8 +385,8 @@ io.on("connection", socket => {
     const { roomId, targetSocketId } = data;
     if (!roomId || !targetSocketId) return;
     const room = rooms[roomId];
-    // Only teacher can mute
-    if (!room || room.teacher !== socket.id) return;
+    // Only host can mute
+    if (!room || room.host !== socket.id) return;
     io.to(targetSocketId).emit("force-mute", {
       by: socket.id,
       byName: socket.userName
@@ -219,8 +399,8 @@ io.on("connection", socket => {
     const { roomId, targetSocketId } = data;
     if (!roomId || !targetSocketId) return;
     const room = rooms[roomId];
-    // Only teacher can remove
-    if (!room || room.teacher !== socket.id) return;
+    // Only host can remove
+    if (!room || room.host !== socket.id) return;
 
     const targetSocket = io.sockets.sockets.get(targetSocketId);
 
@@ -230,8 +410,9 @@ io.on("connection", socket => {
       byName: socket.userName
     });
 
-    // Remove from room
-    room.students = room.students.filter(id => id !== targetSocketId);
+    // Remove from participants and waiting list
+    room.participants = room.participants.filter(id => id !== targetSocketId);
+    room.waitingStudents = room.waitingStudents.filter(id => id !== targetSocketId);
 
     // Notify everyone else in the room
     socket.to(roomId).emit("user-left", {
@@ -245,6 +426,7 @@ io.on("connection", socket => {
     if (targetSocket) {
       targetSocket.leave(roomId);
       targetSocket.roomId = null;
+      targetSocket.isApproved = false;
     }
 
     broadcastParticipants(roomId);
@@ -256,13 +438,20 @@ io.on("connection", socket => {
     const roomId = socket.roomId;
 
     if (roomId && rooms[roomId]) {
-      const isTeacher = rooms[roomId].teacher === socket.id;
+      const isHost = rooms[roomId].host === socket.id;
 
-      if (isTeacher) {
-        rooms[roomId].teacher = null;
+      if (isHost) {
+        rooms[roomId].host = null;
         console.log(`Teacher "${socket.userName}" (${socket.id}) left room ${roomId}`);
+
+        // Notify all waiting students that teacher left
+        (rooms[roomId].waitingStudents || []).forEach(sid => {
+          io.to(sid).emit("waiting-for-teacher");
+        });
       } else {
-        rooms[roomId].students = rooms[roomId].students.filter(id => id !== socket.id);
+        // Remove from participants or waiting list
+        rooms[roomId].participants = rooms[roomId].participants.filter(id => id !== socket.id);
+        rooms[roomId].waitingStudents = (rooms[roomId].waitingStudents || []).filter(id => id !== socket.id);
         console.log(`Student "${socket.userName}" (${socket.id}) left room ${roomId}`);
       }
 
@@ -271,12 +460,13 @@ io.on("connection", socket => {
         socketId: socket.id,
         userId: socket.userId,
         userName: socket.userName,
-        role: isTeacher ? "teacher" : "student"
+        role: isHost ? "teacher" : "student"
       });
 
       broadcastParticipants(roomId);
 
-      if (!rooms[roomId].teacher && rooms[roomId].students.length === 0) {
+      // Cleanup empty room
+      if (!rooms[roomId].host && rooms[roomId].participants.length === 0 && (rooms[roomId].waitingStudents || []).length === 0) {
         delete rooms[roomId];
         console.log(`Room ${roomId} deleted (empty)`);
       }

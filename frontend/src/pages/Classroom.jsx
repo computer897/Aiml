@@ -254,6 +254,115 @@ function WaitingRoom({ classData, onClassStarted, onLeave }) {
   )
 }
 
+// ─── Waiting For Approval Screen (Google Meet style) ────────────────────────
+function WaitingForApprovalScreen({ classData, onLeave, onRejected }) {
+  const [dots, setDots] = useState('')
+
+  useEffect(() => {
+    const t = setInterval(() => setDots(d => (d.length >= 3 ? '' : d + '.')), 600)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <div className="h-[100dvh] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4 safe-bottom">
+      <div className="max-w-lg w-full text-center">
+        <div className="relative inline-flex mb-6 sm:mb-8">
+          <div className="absolute inset-0 bg-yellow-500/20 rounded-full animate-pulse" />
+          <div className="relative w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-br from-yellow-600 to-orange-600 rounded-full flex items-center justify-center shadow-2xl">
+            <Clock className="w-10 h-10 sm:w-14 sm:h-14 text-white" />
+          </div>
+        </div>
+
+        <h1 className="text-white text-xl sm:text-3xl font-bold mb-2">{classData.title}</h1>
+        <p className="text-gray-400 mb-6 sm:mb-8 text-sm sm:text-base">
+          Teacher: <span className="text-gray-300 font-medium">{classData.teacher_name}</span>
+        </p>
+
+        <div className="bg-gray-800/80 border border-yellow-600/30 rounded-2xl p-5 sm:p-8 mb-6">
+          <Loader2 className="w-8 h-8 sm:w-10 sm:h-10 text-yellow-400 animate-spin mx-auto mb-4" />
+          <h2 className="text-white text-base sm:text-xl font-semibold mb-2">Waiting for approval{dots}</h2>
+          <p className="text-gray-400 text-xs sm:text-sm">
+            The host will let you in soon. Please wait.
+          </p>
+        </div>
+
+        <button onClick={onLeave} className="px-5 py-2.5 sm:px-6 sm:py-3 bg-gray-700 text-gray-300 rounded-xl hover:bg-gray-600 transition font-medium text-sm">
+          Leave
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Join Rejected Screen ────────────────────────────────────────────────────
+function JoinRejectedScreen({ classData, onLeave }) {
+  return (
+    <div className="h-[100dvh] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4 safe-bottom">
+      <div className="max-w-lg w-full text-center">
+        <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-br from-red-600 to-red-700 rounded-full flex items-center justify-center shadow-2xl mx-auto mb-6">
+          <UserX className="w-10 h-10 sm:w-14 sm:h-14 text-white" />
+        </div>
+
+        <h1 className="text-white text-xl sm:text-3xl font-bold mb-2">Request Denied</h1>
+        <p className="text-gray-400 mb-6 text-sm sm:text-base">
+          The host has denied your request to join this meeting.
+        </p>
+
+        <button onClick={onLeave} className="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition font-medium">
+          Return to Dashboard
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Join Request Modal (Teacher sees this) ──────────────────────────────────
+function JoinRequestModal({ requests, onAccept, onReject }) {
+  if (!requests || requests.length === 0) return null
+
+  return (
+    <div className="fixed bottom-24 right-4 z-40 w-80 max-h-96 overflow-y-auto">
+      <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden">
+        <div className="bg-gray-700 px-4 py-3 border-b border-gray-600">
+          <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+            <Users className="w-4 h-4" />
+            Waiting to join ({requests.length})
+          </h3>
+        </div>
+        <div className="divide-y divide-gray-700">
+          {requests.map(req => (
+            <div key={req.socketId} className="p-4 flex items-center gap-3">
+              <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-white text-sm font-semibold">
+                  {(req.userName || '?').split(' ').map(n => n[0]).join('')}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-medium truncate">{req.userName || 'Student'}</p>
+                <p className="text-gray-400 text-xs">Wants to join</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onReject(req.socketId)}
+                  className="px-3 py-1.5 bg-gray-600 text-gray-300 rounded-full text-xs font-medium hover:bg-gray-500 transition"
+                >
+                  Deny
+                </button>
+                <button
+                  onClick={() => onAccept(req.socketId)}
+                  className="px-3 py-1.5 bg-primary-600 text-white rounded-full text-xs font-medium hover:bg-primary-700 transition"
+                >
+                  Admit
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Teacher Left Banner ─────────────────────────────────────────────────────
 function TeacherLeftBanner({ onLeave }) {
   return (
@@ -488,6 +597,11 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
   const [forceMuteNotice, setForceMuteNotice] = useState(false)
   const [removedFromRoom, setRemovedFromRoom] = useState(false)
 
+  // Waiting room states
+  const [waitingForApproval, setWaitingForApproval] = useState(false)
+  const [joinRejected, setJoinRejected] = useState(false)
+  const [joinRequests, setJoinRequests] = useState([]) // Teacher's waiting list
+
   // WebRTC state
   const [remoteStreams, setRemoteStreams] = useState({})
   const [participants, setParticipants] = useState({ teacher: null, students: [], count: 1 })
@@ -588,6 +702,44 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
         setRemovedFromRoom(true)
       }
 
+      // ── Waiting Room Callbacks ──
+      
+      // Student: waiting for teacher approval
+      rtc.callbacks.onWaitingForApproval = () => {
+        console.log('[Classroom] Waiting for approval')
+        setWaitingForApproval(true)
+      }
+
+      // Student: approved to join
+      rtc.callbacks.onJoinApproved = () => {
+        console.log('[Classroom] Join approved!')
+        setWaitingForApproval(false)
+        setJoinRejected(false)
+        // Start attendance after approval
+        if (user?.role === 'student') {
+          attendanceAPI.start(classData.class_id)
+            .then(resp => setAttendanceId(resp.attendance_id))
+            .catch(err => console.error('Failed to start attendance:', err))
+        }
+      }
+
+      // Student: rejected by teacher
+      rtc.callbacks.onJoinRejected = (message) => {
+        console.log('[Classroom] Join rejected:', message)
+        setWaitingForApproval(false)
+        setJoinRejected(true)
+      }
+
+      // Teacher: receive join request from student
+      rtc.callbacks.onJoinRequest = (data) => {
+        console.log('[Classroom] Join request from:', data.userName)
+        setJoinRequests(prev => {
+          // Avoid duplicates
+          if (prev.some(r => r.socketId === data.socketId)) return prev
+          return [...prev, data]
+        })
+      }
+
       // Join the room
       if (stream) {
         rtc.joinRoom(
@@ -608,15 +760,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
         }
       }
 
-      // Student: start attendance
-      if (user?.role === 'student') {
-        try {
-          const resp = await attendanceAPI.start(classData.class_id)
-          setAttendanceId(resp.attendance_id)
-        } catch (err) {
-          console.error('Failed to start attendance:', err)
-        }
-      }
+      // Note: For students, attendance is started AFTER approval (see onJoinApproved callback)
     }
 
     init()
@@ -746,6 +890,23 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
     }
   }
 
+  // ── Waiting Room Handlers (Teacher) ──
+  const handleAcceptStudent = (studentSocketId) => {
+    if (webrtcRef.current) {
+      webrtcRef.current.acceptStudent(studentSocketId)
+      // Remove from local join requests list
+      setJoinRequests(prev => prev.filter(r => r.socketId !== studentSocketId))
+    }
+  }
+
+  const handleRejectStudent = (studentSocketId) => {
+    if (webrtcRef.current) {
+      webrtcRef.current.rejectStudent(studentSocketId)
+      // Remove from local join requests list
+      setJoinRequests(prev => prev.filter(r => r.socketId !== studentSocketId))
+    }
+  }
+
   const handleScreenShare = async () => {
     if (!webrtcRef.current) return
     if (isScreenSharing) {
@@ -767,6 +928,16 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
   // Determine active side panel
   const activeSidePanel = showChat ? 'chat' : showDoubts ? 'doubts' : showEngagement ? 'engagement' : showParticipants ? 'participants' : null
 
+  // ── Student: Show waiting for approval screen ──
+  if (user?.role === 'student' && waitingForApproval) {
+    return <WaitingForApprovalScreen classData={classData} onLeave={onLeave} />
+  }
+
+  // ── Student: Show rejected screen ──
+  if (user?.role === 'student' && joinRejected) {
+    return <JoinRejectedScreen classData={classData} onLeave={onLeave} />
+  }
+
   return (
     <div className="h-[100dvh] bg-gray-900 flex flex-col overflow-hidden">
       {/* Teacher Left overlay */}
@@ -774,6 +945,15 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
 
       {/* Removed from room overlay */}
       {removedFromRoom && <RemovedBanner onLeave={onLeave} />}
+
+      {/* Teacher: Join Request Modal for waiting students */}
+      {user?.role === 'teacher' && (
+        <JoinRequestModal
+          requests={joinRequests}
+          onAccept={handleAcceptStudent}
+          onReject={handleRejectStudent}
+        />
+      )}
 
       {/* Force mute toast */}
       {forceMuteNotice && (
