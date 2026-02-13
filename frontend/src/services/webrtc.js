@@ -12,7 +12,7 @@
 import { io } from 'socket.io-client'
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5000' : 'https://aiml-signaling.onrender.com')
+  (import.meta.env.DEV ? 'http://localhost:5000' : 'https://aiml-1-rjdv.onrender.com')
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -91,15 +91,24 @@ export function createWebRTCManager() {
   }
 
   function setupSignalingHandlers() {
-    // Teacher: receive list of students already in room
-    socket.on('existing-students', (students) => {
-      console.log('[WebRTC] Existing students:', students)
-      students.forEach(student => {
-        if (student.socketId) {
-          createPeerConnection(student.socketId, true, {
-            userId: student.userId,
-            userName: student.userName
-          })
+    // Receive list of existing participants in room
+    // - If we're a teacher: we initiate connections to existing students
+    // - If we're a student: we just note the teacher exists, wait for their offer
+    socket.on('existing-students', (participants) => {
+      console.log('[WebRTC] Existing participants:', participants, 'my role:', role)
+      participants.forEach(participant => {
+        if (participant.socketId) {
+          if (role === 'teacher') {
+            // Teacher initiates connection to students
+            createPeerConnection(participant.socketId, true, {
+              userId: participant.userId,
+              userName: participant.userName
+            })
+          } else {
+            // Student: Don't initiate - wait for teacher's offer
+            // The teacher will send us an offer via 'student-joined' event on their side
+            console.log('[WebRTC] Student noting teacher exists, waiting for offer:', participant.userName)
+          }
         }
       })
     })

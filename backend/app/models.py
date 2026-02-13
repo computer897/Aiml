@@ -110,6 +110,8 @@ class ClassResponse(BaseModel):
     schedule_time: datetime
     duration_minutes: int
     is_active: bool
+    is_finished: Optional[bool] = False
+    ended_at: Optional[datetime] = None
     enrolled_students: List[str]
     created_at: datetime
 

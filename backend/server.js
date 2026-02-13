@@ -184,10 +184,12 @@ io.on("connection", socket => {
 
     // Send existing participants to the new student
     const existingParticipants = getAllParticipantsExcept(roomId, studentSocketId);
-    io.to(studentSocketId).emit("existing-participants", existingParticipants);
+    // Note: Send as 'existing-students' because frontend listens for that event name
+    io.to(studentSocketId).emit("existing-students", existingParticipants);
 
     // Notify all existing members about the new student
-    studentSocket.to(roomId).emit("user-joined", {
+    // Use 'student-joined' event which the frontend listens for
+    studentSocket.to(roomId).emit("student-joined", {
       socketId: studentSocketId,
       userId: studentSocket.userId,
       userName: studentSocket.userName,
@@ -288,10 +290,12 @@ io.on("connection", socket => {
 
     // Send all existing participants to the new joiner
     const existingParticipants = getAllParticipantsExcept(roomId, socket.id);
-    socket.emit("existing-participants", existingParticipants);
+    // Note: Send as 'existing-students' because frontend listens for that event name
+    socket.emit("existing-students", existingParticipants);
 
     // Notify all existing members — they will initiate WebRTC peer connections
-    socket.to(roomId).emit("user-joined", {
+    // Use 'student-joined' for students, frontend listens for this
+    socket.to(roomId).emit("student-joined", {
       socketId: socket.id,
       userId,
       userName,
@@ -415,7 +419,8 @@ io.on("connection", socket => {
     room.waitingStudents = room.waitingStudents.filter(id => id !== targetSocketId);
 
     // Notify everyone else in the room
-    socket.to(roomId).emit("user-left", {
+    // Use 'student-left' event which frontend listens for
+    socket.to(roomId).emit("student-left", {
       socketId: targetSocketId,
       userId: targetSocket?.userId,
       userName: targetSocket?.userName,
@@ -456,12 +461,22 @@ io.on("connection", socket => {
       }
 
       // Broadcast user-left to all remaining participants
-      socket.to(roomId).emit("user-left", {
-        socketId: socket.id,
-        userId: socket.userId,
-        userName: socket.userName,
-        role: isHost ? "teacher" : "student"
-      });
+      // Use the appropriate event name that frontend expects
+      if (isHost) {
+        socket.to(roomId).emit("teacher-left", {
+          socketId: socket.id,
+          userId: socket.userId,
+          userName: socket.userName,
+          role: "teacher"
+        });
+      } else {
+        socket.to(roomId).emit("student-left", {
+          socketId: socket.id,
+          userId: socket.userId,
+          userName: socket.userName,
+          role: "student"
+        });
+      }
 
       broadcastParticipants(roomId);
 

@@ -321,16 +321,23 @@ async def deactivate_class(
             detail="Not authorized to deactivate this class"
         )
     
+    ended_at = datetime.utcnow()
+    
     await db.classes.update_one(
         {"_id": class_doc["_id"]},
-        {"$set": {"is_active": False}}
+        {"$set": {
+            "is_active": False,
+            "is_finished": True,
+            "ended_at": ended_at
+        }}
     )
     
-    logger.info(f"✓ Class {class_id} deactivated")
+    logger.info(f"✓ Class {class_id} deactivated and finished")
     
     return {
-        "message": "Class deactivated",
-        "class_id": class_id
+        "message": "Class ended",
+        "class_id": class_id,
+        "ended_at": ended_at.isoformat()
     }
 
 
