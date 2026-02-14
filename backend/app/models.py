@@ -22,9 +22,9 @@ class User(BaseModel):
     email: EmailStr
     password_hash: str
     role: UserRole
-    # Multi-college system fields
-    college_name: str = Field(..., min_length=2, max_length=200, description="College name for access control")
-    department_name: str = Field(..., min_length=2, max_length=200, description="Department name for access control")
+    # Multi-college system fields - optional for backward compatibility with existing users
+    college_name: Optional[str] = Field(None, max_length=200, description="College name for access control")
+    department_name: Optional[str] = Field(None, max_length=200, description="Department name for access control")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
     class Config:
@@ -68,8 +68,8 @@ class UserResponse(BaseModel):
     name: str
     email: EmailStr
     role: UserRole
-    college_name: str
-    department_name: str
+    college_name: Optional[str] = None
+    department_name: Optional[str] = None
     created_at: datetime
 
 
