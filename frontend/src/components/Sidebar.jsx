@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, StickyNote, Video, MessageSquare,
-  Calendar, Settings, LogOut, ChevronLeft, ChevronRight, GraduationCap,
+  Calendar, Settings, LogOut, ChevronLeft, ChevronRight,
   PlusSquare, List, Users, Sparkles, FileText, Megaphone
 } from 'lucide-react'
 
@@ -83,13 +83,15 @@ function Sidebar({ collapsed, onToggle, activeTab, onTabChange, onSettingsOpen, 
       >
         {/* Logo */}
         <div className={`flex items-center h-16 px-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 ${collapsed ? 'justify-center' : 'gap-3'}`}>
-          <div className="w-9 h-9 bg-gradient-to-br from-primary-600 to-primary-700 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary-600/20">
-            <GraduationCap className="w-5 h-5 text-white" />
-          </div>
+          <img 
+            src="/logo.png" 
+            alt="VC Room" 
+            className={`${collapsed ? 'w-10 h-10' : 'w-9 h-9'} object-contain flex-shrink-0`}
+          />
           {!collapsed && (
             <div className="min-w-0 animate-fade-in">
-              <h1 className="text-sm font-bold text-gray-900 dark:text-white leading-tight truncate">Virtual Classroom</h1>
-              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">AI Monitor</p>
+              <h1 className="text-sm font-bold text-gray-900 dark:text-white leading-tight truncate">VC Room</h1>
+              <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Virtual Classroom</p>
             </div>
           )}
         </div>

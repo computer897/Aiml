@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { FileText, Upload, Download, Eye, Trash2, Search, FolderOpen, File, Image, Video, MoreVertical, Plus, X } from 'lucide-react'
-import { teacherNotes } from '../../data/mockData'
+
+const NOTES_STORAGE_KEY = 'teacher_notes_materials'
 
 const colorMap = {
   primary: { bg: 'bg-primary-100 dark:bg-primary-900/30', text: 'text-primary-600 dark:text-primary-400' },
@@ -18,22 +19,69 @@ const fileTypeIcon = (filename) => {
 }
 
 function TeacherNotesMaterialsTab() {
+  const [notes, setNotes] = useState([])
   const [search, setSearch] = useState('')
   const [selectedSubject, setSelectedSubject] = useState('all')
   const [showUpload, setShowUpload] = useState(false)
   const [uploadForm, setUploadForm] = useState({ title: '', subject: '', topic: '', description: '', isImportant: false })
   const [dragOver, setDragOver] = useState(false)
 
-  const subjects = ['all', ...new Set(teacherNotes.map(n => n.subject))]
+  // Load notes from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(NOTES_STORAGE_KEY)
+    if (saved) {
+      try {
+        setNotes(JSON.parse(saved))
+      } catch (e) {
+        console.error('Error loading notes:', e)
+      }
+    }
+  }, [])
 
-  const filtered = teacherNotes.filter(n => {
+  // Save notes to localStorage when changed
+  useEffect(() => {
+    if (notes.length > 0) {
+      localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes))
+    }
+  }, [notes])
+
+  const subjects = ['all', ...new Set(notes.map(n => n.subject))]
+
+  const filtered = notes.filter(n => {
     const matchSearch = n.title.toLowerCase().includes(search.toLowerCase()) || n.topic.toLowerCase().includes(search.toLowerCase())
     const matchSubject = selectedSubject === 'all' || n.subject === selectedSubject
     return matchSearch && matchSubject
   })
 
   // Count all attachments
-  const totalFiles = teacherNotes.reduce((sum, n) => sum + n.attachments.length, 0)
+  const totalFiles = notes.reduce((sum, n) => sum + (n.attachments?.length || 0), 0)
+
+  const handleUpload = () => {
+    if (!uploadForm.title || !uploadForm.subject || !uploadForm.topic) {
+      alert('Please fill in title, subject and topic.')
+      return
+    }
+    const newNote = {
+      id: 'note-' + Date.now(),
+      title: uploadForm.title,
+      subject: uploadForm.subject,
+      topic: uploadForm.topic,
+      content: uploadForm.description,
+      isImportant: uploadForm.isImportant,
+      date: new Date().toLocaleDateString(),
+      color: ['primary', 'purple', 'cyan', 'amber'][Math.floor(Math.random() * 4)],
+      attachments: []
+    }
+    setNotes([newNote, ...notes])
+    setUploadForm({ title: '', subject: '', topic: '', description: '', isImportant: false })
+    setShowUpload(false)
+  }
+
+  const handleDelete = (id) => {
+    if (confirm('Delete this note?')) {
+      setNotes(notes.filter(n => n.id !== id))
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -110,7 +158,7 @@ function TeacherNotesMaterialsTab() {
             <p className="text-xs text-gray-400 mt-1">PDF, DOC, PPT, ZIP, Images up to 50MB</p>
           </div>
 
-          <button className="px-5 py-2.5 bg-primary-600 text-white font-semibold text-sm rounded-xl hover:bg-primary-700 transition flex items-center gap-2">
+          <button onClick={handleUpload} className="px-5 py-2.5 bg-primary-600 text-white font-semibold text-sm rounded-xl hover:bg-primary-700 transition flex items-center gap-2">
             <Upload className="w-4 h-4" /> Upload
           </button>
         </div>
@@ -119,10 +167,10 @@ function TeacherNotesMaterialsTab() {
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total Notes', value: teacherNotes.length, icon: FileText, color: 'primary' },
+          { label: 'Total Notes', value: notes.length, icon: FileText, color: 'primary' },
           { label: 'Total Files', value: totalFiles, icon: FolderOpen, color: 'purple' },
           { label: 'Subjects', value: subjects.length - 1, icon: File, color: 'cyan' },
-          { label: 'Important', value: teacherNotes.filter(n => n.isImportant).length, icon: FileText, color: 'amber' },
+          { label: 'Important', value: notes.filter(n => n.isImportant).length, icon: FileText, color: 'amber' },
         ].map((stat, i) => {
           const c = colorMap[stat.color]
           return (
@@ -194,7 +242,7 @@ function TeacherNotesMaterialsTab() {
                       <button className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition" title="Edit">
                         <Eye className="w-3.5 h-3.5 text-gray-400" />
                       </button>
-                      <button className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition" title="Delete">
+                      <button onClick={() => handleDelete(note.id)} className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition" title="Delete">
                         <Trash2 className="w-3.5 h-3.5 text-red-400" />
                       </button>
                     </div>

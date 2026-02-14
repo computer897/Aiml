@@ -6,6 +6,7 @@ import SignUp from './pages/SignUp'
 import StudentDashboard from './pages/StudentDashboard'
 import TeacherDashboard from './pages/TeacherDashboard'
 import Classroom from './pages/Classroom'
+import { PWAInstallBanner, OfflineIndicator, UpdateBanner } from './components/PWAInstallBanner'
 
 function App() {
   const [user, setUser] = useState(() => {
@@ -28,6 +29,11 @@ function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
+        {/* PWA Components */}
+        <OfflineIndicator />
+        <PWAInstallBanner />
+        <UpdateBanner />
+        
         <Routes>
           <Route path="/" element={user ? <Navigate to={user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard'} /> : <Navigate to="/login" />} />
           <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to={user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard'} />} />

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Calendar, Clock, BookOpen, ChevronLeft, ChevronRight, Users } from 'lucide-react'
-import { weeklySchedule, scheduledClasses } from '../../data/mockData'
 
 const colorMap = {
   primary: { bg: 'bg-primary-100 dark:bg-primary-900/30', text: 'text-primary-600 dark:text-primary-400', dot: 'bg-primary-500', border: 'border-primary-200 dark:border-primary-700' },
@@ -12,12 +11,23 @@ const colorMap = {
 const daysFull = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
-function StudentCalendarTab() {
+function StudentCalendarTab({ classes = [] }) {
   const today = new Date()
   const [currentMonth, setCurrentMonth] = useState(today.getMonth())
   const [currentYear, setCurrentYear] = useState(today.getFullYear())
   const [selectedDate, setSelectedDate] = useState(today.getDate())
   const [view, setView] = useState('month') // 'month' | 'week'
+
+  // Convert classes to scheduled events format
+  const scheduledClasses = classes.map(cls => ({
+    id: cls.class_id,
+    className: cls.title,
+    teacherName: cls.teacher_name,
+    date: cls.schedule_time,
+    time: cls.schedule_time ? new Date(cls.schedule_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Flexible',
+    duration: cls.duration_minutes ? `${cls.duration_minutes} min` : 'N/A',
+    color: 'primary'
+  }))
 
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
   const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay()
@@ -33,6 +43,7 @@ function StudentCalendarTab() {
 
   // Events on the selected date
   const selectedDateEvents = scheduledClasses.filter(cls => {
+    if (!cls.date) return false
     const d = new Date(cls.date)
     return d.getDate() === selectedDate && d.getMonth() === currentMonth && d.getFullYear() === currentYear
   })
@@ -45,6 +56,7 @@ function StudentCalendarTab() {
   // Check if a day has events
   const hasEvent = (day) => {
     return scheduledClasses.some(cls => {
+      if (!cls.date) return false
       const d = new Date(cls.date)
       return d.getDate() === day && d.getMonth() === currentMonth && d.getFullYear() === currentYear
     })

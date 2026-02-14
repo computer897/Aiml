@@ -22,9 +22,11 @@ Deploy the Virtual Classroom React frontend to Netlify.
 
    | Variable | Value |
    |----------|-------|
-   | `VITE_API_URL` | `https://your-backend.onrender.com` |
-   | `VITE_SOCKET_URL` | `wss://your-backend.onrender.com` |
+   | `VITE_API_URL` | `https://virtual-classroom-api.onrender.com` (FastAPI backend) |
+   | `VITE_SOCKET_URL` | `https://aiml-signaling.onrender.com` (Socket.IO signaling server - DIFFERENT from API) |
    | `NODE_VERSION` | `18` |
+
+   > **Important:** The `VITE_SOCKET_URL` must point to the Node.js Socket.IO signaling server (`server.js`), NOT the FastAPI backend. These are deployed as separate services.
 
 5. Click **Deploy site**
 

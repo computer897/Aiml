@@ -42,12 +42,14 @@ async def register_user(user_data: UserCreate, db=Depends(get_db)):
         # Hash password
         password_hash = hash_password(user_data.password)
         
-        # Create user document
+        # Create user document with multi-college fields
         user_doc = {
             "name": user_data.name,
             "email": user_data.email,
             "password_hash": password_hash,
             "role": user_data.role,
+            "college_name": user_data.college_name,
+            "department_name": user_data.department_name,
             "created_at": datetime.utcnow()
         }
         
@@ -100,8 +102,13 @@ async def login_user(credentials: UserLogin, db=Depends(get_db)):
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Create access token with string user ID
-        access_token = create_access_token(data={"sub": str(user.id), "role": user.role})
+        # Create access token with user ID, role, college and department for access control
+        access_token = create_access_token(data={
+            "sub": str(user.id),
+            "role": user.role,
+            "college_name": user.college_name,
+            "department_name": user.department_name
+        })
         
         logger.info(f"✓ User logged in: {credentials.email}")
         
@@ -112,7 +119,9 @@ async def login_user(credentials: UserLogin, db=Depends(get_db)):
                 "id": str(user.id),
                 "name": user.name,
                 "email": user.email,
-                "role": user.role
+                "role": user.role,
+                "college_name": user.college_name,
+                "department_name": user.department_name
             }
         }
     except HTTPException:

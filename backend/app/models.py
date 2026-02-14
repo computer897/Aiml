@@ -22,6 +22,9 @@ class User(BaseModel):
     email: EmailStr
     password_hash: str
     role: UserRole
+    # Multi-college system fields
+    college_name: str = Field(..., min_length=2, max_length=200, description="College name for access control")
+    department_name: str = Field(..., min_length=2, max_length=200, description="Department name for access control")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
     class Config:
@@ -30,7 +33,9 @@ class User(BaseModel):
             "example": {
                 "name": "John Doe",
                 "email": "john@example.com",
-                "role": "student"
+                "role": "student",
+                "college_name": "ABC University",
+                "department_name": "Computer Science"
             }
         }
 
@@ -46,6 +51,9 @@ class UserCreate(BaseModel):
         description="Password must be 8-64 characters",
     )
     role: UserRole
+    # Multi-college system fields - required during registration
+    college_name: str = Field(..., min_length=2, max_length=200, description="College name")
+    department_name: str = Field(..., min_length=2, max_length=200, description="Department name")
 
 
 class UserLogin(BaseModel):
@@ -60,6 +68,8 @@ class UserResponse(BaseModel):
     name: str
     email: EmailStr
     role: UserRole
+    college_name: str
+    department_name: str
     created_at: datetime
 
 
@@ -76,6 +86,10 @@ class Class(BaseModel):
     is_active: bool = Field(default=False, description="Whether class is currently in session")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     enrolled_students: List[str] = Field(default_factory=list, description="List of student IDs")
+    # Multi-college system fields (INTERNAL USE ONLY - not exposed in API responses)
+    college_name: str = Field(..., description="College name for filtering (internal)")
+    department_name: str = Field(..., description="Department name for filtering (internal)")
+    created_by: str = Field(..., description="Teacher ID who created this class")
     
     class Config:
         populate_by_name = True
@@ -137,14 +151,19 @@ class Attendance(BaseModel):
     total_class_duration_seconds: int = Field(default=0, description="Expected class duration")
     engagement_duration_seconds: int = Field(default=0, description="Time student was engaged")
     
-    # Real-time tracking
+    # Real-time tracking (from browser-side face detection)
     last_frame_timestamp: Optional[datetime] = None
     is_face_detected: bool = Field(default=False)
     is_looking_at_screen: bool = Field(default=False)
+    attention_score: float = Field(default=0.0, ge=0, le=100, description="Attention score from client-side detection")
+    multiple_faces_detected: bool = Field(default=False, description="Whether multiple faces were detected")
     
     # Final status
     engagement_percentage: float = Field(default=0.0, description="Percentage of time engaged")
     status: AttendanceStatus = Field(default=AttendanceStatus.IN_PROGRESS)
+    
+    # Privacy tracking
+    consent_given: bool = Field(default=True, description="Whether student consented to AI tracking")
     
     class Config:
         populate_by_name = True
@@ -157,11 +176,36 @@ class AttendanceStart(BaseModel):
 
 
 class FrameData(BaseModel):
-    """Schema for receiving webcam frame data."""
+    """Schema for receiving webcam frame data (LEGACY - for backward compatibility)."""
     session_id: str
     student_id: str
     frame_base64: str = Field(..., description="Base64 encoded image frame")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AttendanceMetadata(BaseModel):
+    """
+    Schema for receiving attendance metadata from browser-side face detection.
+    
+    PRIVACY-FOCUSED: No video/images are transmitted. Only detection metadata
+    from client-side processing is sent to the server.
+    
+    This approach:
+    - Keeps video processing local (in browser)
+    - Only transmits boolean/numeric metadata
+    - Ensures no raw video/images are stored
+    - Complies with privacy-first design
+    """
+    student_id: str = Field(..., description="Student's user ID")
+    class_id: str = Field(..., description="Class identifier")
+    session_id: str = Field(..., description="Attendance session identifier")
+    face_detected: bool = Field(..., description="Whether a face was detected")
+    multiple_faces: bool = Field(default=False, description="Whether multiple faces were detected")
+    face_count: int = Field(default=0, description="Number of faces detected")
+    attention_score: float = Field(default=0.0, ge=0, le=100, description="Attention/engagement score 0-100")
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    processing_location: str = Field(default="client-side", description="Where face detection was performed")
+    detection_method: str = Field(default="face-api.js", description="Face detection library used")
 
 
 class EngagementUpdate(BaseModel):

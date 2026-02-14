@@ -7,20 +7,32 @@ Falls back to a stub when mediapipe/opencv are not installed (e.g. on Render).
 
 import base64
 import logging
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+FACE_DETECTION_AVAILABLE = False
+mp = None
+cv2 = None
+np = None
+
 try:
-    import cv2
-    import mediapipe as mp
-    import numpy as np
-    FACE_DETECTION_AVAILABLE = True
-    logger.info("✓ MediaPipe and OpenCV available – face detection enabled")
-except ImportError:
-    FACE_DETECTION_AVAILABLE = False
-    np = None  # type: ignore
-    logger.warning("⚠ mediapipe/opencv not installed – face detection disabled (stub mode)")
+    import cv2 as _cv2
+    import mediapipe as _mp
+    import numpy as _np
+    # Verify mediapipe.solutions is available (not available on some Python versions)
+    if hasattr(_mp, 'solutions') and hasattr(_mp.solutions, 'face_mesh'):
+        cv2 = _cv2
+        mp = _mp
+        np = _np
+        FACE_DETECTION_AVAILABLE = True
+        logger.info("✓ MediaPipe and OpenCV available – face detection enabled")
+    else:
+        logger.warning("⚠ mediapipe.solutions not available – face detection disabled (stub mode)")
+except ImportError as e:
+    logger.warning(f"⚠ mediapipe/opencv not installed – face detection disabled (stub mode): {e}")
+except Exception as e:
+    logger.warning(f"⚠ Error loading face detection libraries – disabled (stub mode): {e}")
 
 
 class FaceDetector:
@@ -31,21 +43,30 @@ class FaceDetector:
     
     def __init__(self):
         """Initialize MediaPipe Face Mesh detector (or stub)."""
+        self.mp_face_mesh = None
+        self.face_mesh = None
+        self._available = False
+        
         if FACE_DETECTION_AVAILABLE:
-            self.mp_face_mesh = mp.solutions.face_mesh
-            self.face_mesh = self.mp_face_mesh.FaceMesh(
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
-            )
-            logger.info("✓ Face detector initialized")
+            try:
+                self.mp_face_mesh = mp.solutions.face_mesh
+                self.face_mesh = self.mp_face_mesh.FaceMesh(
+                    max_num_faces=1,
+                    refine_landmarks=True,
+                    min_detection_confidence=0.5,
+                    min_tracking_confidence=0.5
+                )
+                self._available = True
+                logger.info("✓ Face detector initialized")
+            except Exception as e:
+                logger.warning(f"⚠ Failed to initialize face detector: {e}")
+                self.mp_face_mesh = None
+                self.face_mesh = None
+                self._available = False
         else:
-            self.mp_face_mesh = None
-            self.face_mesh = None
             logger.info("✓ Face detector initialized (stub – no ML libraries)")
     
-    def decode_base64_image(self, base64_string: str) -> Optional["np.ndarray"]:
+    def decode_base64_image(self, base64_string: str) -> Optional[Any]:
         """
         Decode base64 encoded image to numpy array.
         
@@ -55,7 +76,7 @@ class FaceDetector:
         Returns:
             Numpy array image in BGR format, or None if decoding fails
         """
-        if not FACE_DETECTION_AVAILABLE:
+        if not self._available:
             return None
         try:
             # Remove data URL prefix if present
@@ -76,7 +97,7 @@ class FaceDetector:
             logger.error(f"Error decoding base64 image: {e}")
             return None
     
-    def detect_face_and_pose(self, image: "np.ndarray") -> Tuple[bool, bool]:
+    def detect_face_and_pose(self, image: Any) -> Tuple[bool, bool]:
         """
         Detect face and determine if person is looking at screen.
         
@@ -91,7 +112,7 @@ class FaceDetector:
         Returns:
             Tuple of (face_detected, looking_at_screen)
         """
-        if not FACE_DETECTION_AVAILABLE:
+        if not self._available:
             return True, True  # Stub: assume present and looking
         try:
             # Convert BGR to RGB for MediaPipe
@@ -202,7 +223,7 @@ class FaceDetector:
         Returns:
             Tuple of (face_detected, looking_at_screen)
         """
-        if not FACE_DETECTION_AVAILABLE:
+        if not self._available:
             return True, True  # Stub: assume present and looking
 
         # Decode image
@@ -217,7 +238,7 @@ class FaceDetector:
     
     def cleanup(self):
         """Clean up resources."""
-        if FACE_DETECTION_AVAILABLE and self.face_mesh:
+        if self._available and self.face_mesh:
             self.face_mesh.close()
             logger.info("✓ Face detector cleaned up")
 

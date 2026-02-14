@@ -5,14 +5,14 @@ const { Server } = require("socket.io");
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://localhost:5175",
-  "https://vcroom.netlify.app",
-  "https://aiml-frontend.onrender.com",
-  process.env.FRONTEND_URL
-].filter(Boolean);
+// In production, use specific origins. In development, allow all for easier testing.
+const allowedOrigins = process.env.NODE_ENV === 'production' 
+  ? [
+      "https://vcroom.netlify.app",
+      "https://aiml-frontend.onrender.com",
+      process.env.FRONTEND_URL
+    ].filter(Boolean)
+  : true; // Allow all origins in development
 
 const io = new Server(server, {
   cors: {
@@ -20,16 +20,27 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  transports: ["websocket", "polling"]
+  transports: ["websocket", "polling"],
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 // Health check endpoints (Render requires an HTTP response to verify service health)
 app.get("/", (req, res) => {
-  res.json({ status: "ok", service: "signaling-server" });
+  res.json({ 
+    status: "ok", 
+    service: "signaling-server",
+    rooms: Object.keys(rooms).length,
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", rooms: Object.keys(rooms).length });
+  res.json({ 
+    status: "ok", 
+    rooms: Object.keys(rooms).length,
+    activeConnections: io.engine.clientsCount || 0
+  });
 });
 
 // Room structure: { classroomId: { host: socketId, participants: [socketId1, ...], waitingStudents: [] } }

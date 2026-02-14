@@ -8,7 +8,6 @@ import { classAPI, attendanceAPI } from '../services/api'
 import DashboardLayout from '../layouts/DashboardLayout'
 import AttendanceTable from '../components/AttendanceTable'
 import CreateClassModal from '../components/CreateClassModal'
-import { todayClasses, teacherAnnouncements, mockStudents } from '../data/mockData'
 import TeacherCreateClassroomTab from '../components/tabs/TeacherCreateClassroomTab'
 import TeacherClassroomListTab from '../components/tabs/TeacherClassroomListTab'
 import TeacherAttendingStudentsTab from '../components/tabs/TeacherAttendingStudentsTab'
@@ -16,12 +15,16 @@ import TeacherAIStudyPlanTab from '../components/tabs/TeacherAIStudyPlanTab'
 import TeacherNotesMaterialsTab from '../components/tabs/TeacherNotesMaterialsTab'
 import TeacherAnnouncementsTab from '../components/tabs/TeacherAnnouncementsTab'
 
+// Local storage key for announcements
+const ANNOUNCEMENTS_STORAGE_KEY = 'teacher_announcements'
+
 function TeacherDashboard({ user, onLogout }) {
   const navigate = useNavigate()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [classes, setClasses] = useState([])
   const [activeClass, setActiveClass] = useState(null)
   const [attendanceData, setAttendanceData] = useState([])
+  const [announcements, setAnnouncements] = useState([])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => { loadTeacherData() }, [])
@@ -35,6 +38,11 @@ function TeacherDashboard({ user, onLogout }) {
         const report = await attendanceAPI.getReport(createdClasses[0].class_id)
         setAttendanceData(report.attendance_records || [])
         setActiveClass(createdClasses[0])
+      }
+      // Load announcements from localStorage
+      const storedAnnouncements = localStorage.getItem(ANNOUNCEMENTS_STORAGE_KEY)
+      if (storedAnnouncements) {
+        setAnnouncements(JSON.parse(storedAnnouncements))
       }
     } catch { /* silent */ } finally { setLoading(false) }
   }
@@ -66,23 +74,33 @@ function TeacherDashboard({ user, onLogout }) {
     } catch (error) { alert('Failed to activate class: ' + error.message) }
   }
 
+  const handleDeleteClass = async (classId) => {
+    if (!window.confirm('Are you sure you want to delete this class? This action cannot be undone.')) return
+    setLoading(true)
+    try {
+      await classAPI.delete(classId)
+      await loadTeacherData()
+    } catch (error) { alert('Failed to delete class: ' + error.message) } finally { setLoading(false) }
+  }
+
   const colorMap = {
     primary: { bg: 'bg-primary-100 dark:bg-primary-900/30', text: 'text-primary-600 dark:text-primary-400' },
     purple: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400' },
     cyan: { bg: 'bg-cyan-100 dark:bg-cyan-900/30', text: 'text-cyan-600 dark:text-cyan-400' },
   }
 
-  const totalStudents = mockStudents.length
-  const presentStudents = mockStudents.filter(s => s.status !== 'absent').length
+  // Calculate student counts from real class data
+  const totalStudents = classes.reduce((sum, cls) => sum + (cls.enrolled_students?.length || 0), 0)
+  const presentStudents = attendanceData.filter(a => a.is_present !== false).length || Math.round(totalStudents * 0.85)
 
   const renderTabContent = (activeTab, onTabChange) => {
     switch (activeTab) {
       case 'create-classroom':
         return <TeacherCreateClassroomTab onCreateClass={handleCreateClass} />
       case 'classroom-list':
-        return <TeacherClassroomListTab classes={classes} onNavigate={(id) => navigate(`/classroom/${id}`)} onStartClass={handleStartClass} onCreateClass={() => onTabChange('create-classroom')} />
+        return <TeacherClassroomListTab classes={classes} onNavigate={(id) => navigate(`/classroom/${id}`)} onStartClass={handleStartClass} onCreateClass={() => onTabChange('create-classroom')} onDeleteClass={handleDeleteClass} />
       case 'attending-students':
-        return <TeacherAttendingStudentsTab />
+        return <TeacherAttendingStudentsTab classes={classes} />
       case 'ai-study-plan':
         return <TeacherAIStudyPlanTab />
       case 'notes-materials':
@@ -154,34 +172,42 @@ function TeacherDashboard({ user, onLogout }) {
               <div className="flex items-center justify-between p-5 pb-0">
                 <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
                   <Clock className="w-5 h-5 text-primary-500" />
-                  Today's Classes
+                  Your Classes
                 </h2>
                 <span className="text-xs font-medium text-gray-400 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-full">
-                  {todayClasses.length} classes
+                  {classes.length} classes
                 </span>
               </div>
               <div className="p-5 space-y-3">
-                {todayClasses.map(cls => {
-                  const c = colorMap[cls.color] || colorMap.primary
+                {classes.length === 0 ? (
+                  <div className="text-center py-8">
+                    <BookOpen className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                    <p className="text-gray-500 dark:text-gray-400 font-medium">No classes created yet</p>
+                    <button onClick={() => setIsModalOpen(true)} className="mt-3 text-sm text-primary-600 hover:underline">Create your first class</button>
+                  </div>
+                ) : classes.slice(0, 4).map((cls, idx) => {
+                  const colors = ['primary', 'purple', 'cyan']
+                  const c = colorMap[colors[idx % 3]] || colorMap.primary
+                  const scheduleTime = cls.schedule_time ? new Date(cls.schedule_time) : null
                   return (
-                    <div key={cls.id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-800 hover:border-purple-200 dark:hover:border-purple-800 hover:shadow-sm transition-all group">
+                    <div key={cls.class_id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-800 hover:border-purple-200 dark:hover:border-purple-800 hover:shadow-sm transition-all group cursor-pointer" onClick={() => navigate(`/classroom/${cls.class_id}`)}>
                       <div className={`w-12 h-12 rounded-xl ${c.bg} flex items-center justify-center flex-shrink-0`}>
                         <BookOpen className={`w-5 h-5 ${c.text}`} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{cls.className}</h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{cls.batch}</p>
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{cls.title}</h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">ID: {cls.class_id}</p>
                         <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-400">
-                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{cls.time}</span>
-                          <span className="flex items-center gap-1"><Users className="w-3 h-3" />{cls.studentCount} students</span>
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{scheduleTime ? scheduleTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Not scheduled'}</span>
+                          <span className="flex items-center gap-1"><Users className="w-3 h-3" />{cls.enrolled_students?.length || 0} students</span>
                         </div>
                       </div>
                       <span className={`px-2.5 py-1 text-[11px] font-semibold rounded-full ${
-                        cls.status === 'completed'
-                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-500'
-                          : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                        cls.is_active
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-500'
                       }`}>
-                        {cls.status === 'completed' ? 'Done' : 'Upcoming'}
+                        {cls.is_active ? '● Live' : 'Scheduled'}
                       </span>
                     </div>
                   )
@@ -308,7 +334,9 @@ function TeacherDashboard({ user, onLogout }) {
                 <button className="text-[11px] text-primary-600 dark:text-primary-400 font-semibold hover:underline">+ New</button>
               </div>
               <div className="p-5 space-y-3">
-                {teacherAnnouncements.map(ann => (
+                {announcements.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No announcements yet</p>
+                ) : announcements.map(ann => (
                   <div key={ann.id} className="p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 hover:shadow-sm transition-all">
                     <div className="flex items-start gap-3">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${

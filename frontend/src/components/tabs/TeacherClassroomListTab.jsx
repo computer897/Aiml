@@ -3,7 +3,6 @@ import {
   Search, Video, Users, Clock, MoreVertical, Play, Trash2,
   Edit, Copy, ExternalLink, BookOpen, ChevronRight, Filter
 } from 'lucide-react'
-import { todayClasses } from '../../data/mockData'
 
 const colorMap = {
   primary: { bg: 'bg-primary-100 dark:bg-primary-900/30', text: 'text-primary-600 dark:text-primary-400' },
@@ -11,34 +10,21 @@ const colorMap = {
   cyan: { bg: 'bg-cyan-100 dark:bg-cyan-900/30', text: 'text-cyan-600 dark:text-cyan-400' },
 }
 
-function TeacherClassroomListTab({ classes = [], onNavigate, onStartClass, onCreateClass }) {
+function TeacherClassroomListTab({ classes = [], onNavigate, onStartClass, onCreateClass, onDeleteClass }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all') // all | active | scheduled | completed
   const [menuOpen, setMenuOpen] = useState(null)
 
-  // Combine API classes with mock data for a richer display
-  const allClasses = [
-    ...classes.map(c => ({
-      id: c.class_id,
-      title: c.title,
-      batch: c.description || 'Virtual Classroom',
-      time: c.schedule_time ? new Date(c.schedule_time).toLocaleString() : 'Flexible',
-      studentCount: c.student_count || 0,
-      status: c.is_active ? 'active' : 'scheduled',
-      color: 'primary',
-      isAPI: true,
-    })),
-    ...todayClasses.map(c => ({
-      id: c.id,
-      title: c.className,
-      batch: c.batch,
-      time: c.time,
-      studentCount: c.studentCount,
-      status: c.status,
-      color: c.color,
-      isAPI: false,
-    }))
-  ]
+  // Use only real API data - no mock data
+  const allClasses = classes.map(c => ({
+    id: c.class_id,
+    title: c.title,
+    batch: c.description || 'Virtual Classroom',
+    time: c.schedule_time ? new Date(c.schedule_time).toLocaleString() : 'Flexible',
+    studentCount: c.student_count || 0,
+    status: c.is_finished ? 'completed' : c.is_active ? 'active' : 'scheduled',
+    color: 'primary',
+  }))
 
   const filtered = allClasses.filter(c => {
     const matchSearch = c.title.toLowerCase().includes(search.toLowerCase()) || c.batch.toLowerCase().includes(search.toLowerCase())
@@ -123,12 +109,12 @@ function TeacherClassroomListTab({ classes = [], onNavigate, onStartClass, onCre
                   <div className="flex flex-wrap items-center gap-3 mt-1.5 text-[11px] text-gray-400">
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{cls.time}</span>
                     <span className="flex items-center gap-1"><Users className="w-3 h-3" />{cls.studentCount} students</span>
-                    {cls.isAPI && <span className="flex items-center gap-1 text-primary-500"><ExternalLink className="w-3 h-3" />ID: {cls.id}</span>}
+                    <span className="flex items-center gap-1 text-primary-500"><ExternalLink className="w-3 h-3" />ID: {cls.id}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {cls.status !== 'completed' && (
-                    <button onClick={() => cls.isAPI ? onStartClass?.(cls.id) : null}
+                    <button onClick={() => onNavigate?.(cls.id)}
                       className="px-3 py-2 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 transition flex items-center gap-1 opacity-80 group-hover:opacity-100">
                       <Play className="w-3.5 h-3.5" /> {cls.status === 'active' ? 'Join' : 'Start'}
                     </button>
@@ -143,10 +129,14 @@ function TeacherClassroomListTab({ classes = [], onNavigate, onStartClass, onCre
                         <button className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
                           <Edit className="w-3.5 h-3.5" /> Edit
                         </button>
-                        <button className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
+                        <button 
+                          onClick={() => { navigator.clipboard.writeText(cls.id); setMenuOpen(null) }}
+                          className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
                           <Copy className="w-3.5 h-3.5" /> Copy ID
                         </button>
-                        <button className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2">
+                        <button 
+                          onClick={() => { onDeleteClass?.(cls.id); setMenuOpen(null) }}
+                          className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2">
                           <Trash2 className="w-3.5 h-3.5" /> Delete
                         </button>
                       </div>

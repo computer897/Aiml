@@ -7,12 +7,35 @@
  * WAITING ROOM SYSTEM:
  * - Students must request to join and wait for teacher approval
  * - WebRTC connections only start after approval
+ * 
+ * DEPLOYMENT NOTE:
+ * The signaling server (server.js) runs on a SEPARATE Node.js service from the FastAPI backend.
+ * In production, you MUST set VITE_SOCKET_URL to your signaling server URL.
+ * Example: VITE_SOCKET_URL=https://aiml-signaling.onrender.com
  */
 
 import { io } from 'socket.io-client'
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5000' : 'https://aiml-1-rjdv.onrender.com')
+// Signaling server URL - must point to the Node.js Socket.IO server (NOT the FastAPI backend)
+// In production, VITE_SOCKET_URL must be set to the signaling server URL
+const getSocketUrl = () => {
+  // If explicitly set via env var, use it
+  if (import.meta.env.VITE_SOCKET_URL) {
+    return import.meta.env.VITE_SOCKET_URL
+  }
+  
+  // In development, use localhost
+  if (import.meta.env.DEV) {
+    return 'http://localhost:5000'
+  }
+  
+  // Production fallback - try common signaling server names
+  // This should be overridden with VITE_SOCKET_URL in production
+  console.warn('[WebRTC] VITE_SOCKET_URL not set! Using fallback URL. Set this env var for production.')
+  return 'https://aiml-signaling.onrender.com'
+}
+
+const SOCKET_URL = getSocketUrl()
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -61,15 +84,18 @@ export function createWebRTCManager() {
     if (destroyed) return
     if (socket?.connected) return
 
-    console.log('[WebRTC] Connecting to:', SOCKET_URL)
+    console.log('[WebRTC] Connecting to signaling server:', SOCKET_URL)
     const isLocal = SOCKET_URL.includes('localhost')
 
     socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       withCredentials: !isLocal,
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      forceNew: true
     })
 
     socket.on('connect', () => {
@@ -77,14 +103,24 @@ export function createWebRTCManager() {
       callbacks.onConnectionStateChange?.('connected')
     })
 
-    socket.on('disconnect', () => {
-      console.log('[WebRTC] Socket disconnected')
+    socket.on('disconnect', (reason) => {
+      console.log('[WebRTC] Socket disconnected:', reason)
       callbacks.onConnectionStateChange?.('disconnected')
     })
 
     socket.on('connect_error', (error) => {
       console.error('[WebRTC] Connection error:', error.message)
+      console.error('[WebRTC] Make sure signaling server is running at:', SOCKET_URL)
       callbacks.onConnectionStateChange?.('error')
+    })
+
+    socket.on('reconnect', (attemptNumber) => {
+      console.log('[WebRTC] Reconnected after', attemptNumber, 'attempts')
+      callbacks.onConnectionStateChange?.('connected')
+    })
+
+    socket.on('reconnect_attempt', (attemptNumber) => {
+      console.log('[WebRTC] Reconnection attempt:', attemptNumber)
     })
 
     setupSignalingHandlers()
@@ -351,17 +387,26 @@ export function createWebRTCManager() {
     userName = uname
     localStream = stream
 
-    console.log('[WebRTC] joinRoom:', { roomId, role, userId, userName })
+    console.log('[WebRTC] joinRoom:', { roomId, role, userId, userName, hasStream: !!stream })
 
     connect()
 
-    if (socket?.connected) {
-      emitJoinRoom()
-    } else {
-      socket.once('connect', () => {
+    // Wait for socket connection before emitting
+    const tryEmit = () => {
+      if (socket?.connected) {
+        console.log('[WebRTC] Socket is connected, emitting join...')
         emitJoinRoom()
-      })
+      } else {
+        console.log('[WebRTC] Socket not connected yet, waiting...')
+        socket?.once('connect', () => {
+          console.log('[WebRTC] Socket connected, now emitting join...')
+          emitJoinRoom()
+        })
+      }
     }
+
+    // Small delay to ensure socket handlers are set up
+    setTimeout(tryEmit, 100)
   }
 
   function emitJoinRoom() {

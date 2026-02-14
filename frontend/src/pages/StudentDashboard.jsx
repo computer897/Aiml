@@ -6,23 +6,42 @@ import {
 } from 'lucide-react'
 import { classAPI } from '../services/api'
 import DashboardLayout from '../layouts/DashboardLayout'
-import {
-  scheduledClasses, weeklySchedule, teacherNotes,
-  recordedSessions, studentNotifications
-} from '../data/mockData'
 import StudentClassesTab from '../components/tabs/StudentClassesTab'
 import StudentNotesTab from '../components/tabs/StudentNotesTab'
 import StudentRecordingsTab from '../components/tabs/StudentRecordingsTab'
 import StudentChatTab from '../components/tabs/StudentChatTab'
 import StudentCalendarTab from '../components/tabs/StudentCalendarTab'
 
+// Storage keys (matching other components)
+const NOTES_STORAGE_KEY = 'student_notes'
+const RECORDINGS_STORAGE_KEY = 'class_recordings'
+const NOTIFICATIONS_STORAGE_KEY = 'student_notifications'
+
 function StudentDashboard({ user, onLogout }) {
   const navigate = useNavigate()
   const [enrolledClasses, setEnrolledClasses] = useState([])
   const [classToJoin, setClassToJoin] = useState('')
   const [loading, setLoading] = useState(false)
+  const [notes, setNotes] = useState([])
+  const [recordings, setRecordings] = useState([])
+  const [notifications, setNotifications] = useState([])
 
-  useEffect(() => { loadEnrolledClasses() }, [])
+  useEffect(() => {
+    loadEnrolledClasses()
+    // Load data from localStorage
+    try {
+      const savedNotes = localStorage.getItem(NOTES_STORAGE_KEY)
+      if (savedNotes) setNotes(JSON.parse(savedNotes))
+      
+      const savedRecordings = localStorage.getItem(RECORDINGS_STORAGE_KEY)
+      if (savedRecordings) setRecordings(JSON.parse(savedRecordings))
+      
+      const savedNotifications = localStorage.getItem(NOTIFICATIONS_STORAGE_KEY)
+      if (savedNotifications) setNotifications(JSON.parse(savedNotifications))
+    } catch (e) {
+      console.error('Error loading data from localStorage:', e)
+    }
+  }, [])
 
   const loadEnrolledClasses = async () => {
     try {
@@ -64,7 +83,7 @@ function StudentDashboard({ user, onLogout }) {
       case 'chat':
         return <StudentChatTab />
       case 'calendar':
-        return <StudentCalendarTab />
+        return <StudentCalendarTab classes={enrolledClasses} />
       default:
         return renderDashboard()
     }
@@ -121,14 +140,17 @@ function StudentDashboard({ user, onLogout }) {
                   Upcoming Classes
                 </h2>
                 <span className="text-xs font-medium text-gray-400 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-full">
-                  {scheduledClasses.length} classes
+                  {enrolledClasses.length} classes
                 </span>
               </div>
               <div className="p-5 space-y-3">
-                {scheduledClasses.map((cls, i) => {
+                {enrolledClasses.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No classes enrolled yet</p>
+                ) : enrolledClasses.map((cls, i) => {
                   const c = colorMap[cls.color] || colorMap.primary
+                  const scheduleDate = cls.schedule_time ? new Date(cls.schedule_time) : null
                   return (
-                    <div key={cls.id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-800 hover:border-primary-200 dark:hover:border-primary-800 hover:shadow-sm transition-all group cursor-pointer"
+                    <div key={cls.class_id} className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-800 hover:border-primary-200 dark:hover:border-primary-800 hover:shadow-sm transition-all group cursor-pointer"
                       style={{ animationDelay: `${i * 60}ms` }}
                     >
                       <div className={`w-12 h-12 rounded-xl ${c.bg} flex items-center justify-center flex-shrink-0`}>
@@ -136,19 +158,23 @@ function StudentDashboard({ user, onLogout }) {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
-                          <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{cls.subject}</h3>
+                          <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{cls.title}</h3>
                           <span className={`w-1.5 h-1.5 rounded-full ${c.dot} flex-shrink-0`} />
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                          {cls.teacher} &middot; {cls.topic}
+                          {cls.teacher_name} &middot; {cls.subject || 'General'}
                         </p>
                         <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-400">
-                          <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{cls.date}</span>
-                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{cls.time}</span>
-                          <span className="flex items-center gap-1"><Users className="w-3 h-3" />{cls.studentCount}</span>
+                          {scheduleDate && (
+                            <>
+                              <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{scheduleDate.toLocaleDateString()}</span>
+                              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{scheduleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            </>
+                          )}
+                          <span className="flex items-center gap-1"><Users className="w-3 h-3" />{cls.enrolled_count || 0}</span>
                         </div>
                       </div>
-                      <button onClick={() => handleJoinClass(cls.id)} className="px-3 py-2 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 transition opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                      <button onClick={() => handleJoinClass(cls.class_id)} className="px-3 py-2 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 transition opacity-0 group-hover:opacity-100 flex items-center gap-1">
                         Join <ArrowRight className="w-3 h-3" />
                       </button>
                     </div>
@@ -157,7 +183,7 @@ function StudentDashboard({ user, onLogout }) {
               </div>
             </section>
 
-            {/* ── Class Schedule (Weekly Timetable) ── */}
+            {/* ── Class Schedule (Enrolled Classes) ── */}
             <section className="card-interactive overflow-hidden">
               <div className="flex items-center justify-between p-5 pb-0">
                 <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
@@ -165,28 +191,33 @@ function StudentDashboard({ user, onLogout }) {
                   Class Schedule
                 </h2>
               </div>
-              <div className="p-5 overflow-x-auto">
-                <div className="min-w-[600px]">
-                  <div className="grid grid-cols-5 gap-3">
-                    {weeklySchedule.map(day => (
-                      <div key={day.day} className="space-y-2">
-                        <div className="text-center py-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                          <span className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase">{day.day}</span>
-                        </div>
-                        {day.slots.map((slot, i) => {
-                          const c = colorMap[slot.color] || colorMap.primary
-                          return (
-                            <div key={i} className={`p-2.5 rounded-lg border border-gray-100 dark:border-gray-800 ${c.bg} transition-all hover:scale-[1.02]`}>
-                              <p className={`text-[11px] font-bold ${c.text}`}>{slot.time}</p>
-                              <p className="text-xs font-semibold text-gray-900 dark:text-white mt-0.5 truncate">{slot.subject}</p>
-                              <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{slot.teacher}</p>
+              <div className="p-5">
+                {enrolledClasses.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No scheduled classes</p>
+                ) : (
+                  <div className="space-y-2">
+                    {enrolledClasses.map((cls, i) => {
+                      const c = colorMap.primary
+                      const scheduleDate = cls.schedule_time ? new Date(cls.schedule_time) : null
+                      const dayName = scheduleDate ? scheduleDate.toLocaleDateString('en-US', { weekday: 'short' }) : 'TBD'
+                      const time = scheduleDate ? scheduleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Flexible'
+                      return (
+                        <div key={cls.class_id} className={`p-3 rounded-lg border border-gray-100 dark:border-gray-800 ${c.bg} transition-all hover:scale-[1.01]`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <p className="text-xs font-semibold text-gray-900 dark:text-white truncate">{cls.title}</p>
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{cls.teacher_name}</p>
                             </div>
-                          )
-                        })}
-                      </div>
-                    ))}
+                            <div className="text-right">
+                              <p className={`text-[11px] font-bold ${c.text}`}>{dayName}</p>
+                              <p className="text-[10px] text-gray-400">{time}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                </div>
+                )}
               </div>
             </section>
 
@@ -199,7 +230,9 @@ function StudentDashboard({ user, onLogout }) {
                 </h2>
               </div>
               <div className="p-5 space-y-3">
-                {teacherNotes.map(note => {
+                {notes.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No notes available</p>
+                ) : notes.slice(0, 3).map(note => {
                   const c = colorMap[note.color] || colorMap.primary
                   return (
                     <div key={note.id} className="flex items-start gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-800 hover:shadow-sm transition-all">
@@ -215,7 +248,7 @@ function StudentDashboard({ user, onLogout }) {
                           {note.subject} &middot; {note.teacher}
                         </p>
                         <p className="text-xs text-gray-400 mt-1 line-clamp-1">{note.content}</p>
-                        {note.attachments.length > 0 && (
+                        {note.attachments?.length > 0 && (
                           <div className="flex items-center gap-2 mt-2.5">
                             {note.attachments.map((file, i) => (
                               <button key={i} className="flex items-center gap-1 px-2.5 py-1 bg-gray-100 dark:bg-gray-800 rounded-lg text-[11px] font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition">
@@ -244,7 +277,9 @@ function StudentDashboard({ user, onLogout }) {
                 </h2>
               </div>
               <div className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {recordedSessions.map(rec => {
+                {recordings.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4 col-span-full">No recordings available</p>
+                ) : recordings.slice(0, 3).map(rec => {
                   const c = colorMap[rec.color] || colorMap.primary
                   return (
                     <div key={rec.id} className="group rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden hover:shadow-md transition-all">
@@ -289,7 +324,9 @@ function StudentDashboard({ user, onLogout }) {
                 </span>
               </div>
               <div className="p-5 space-y-3">
-                {studentNotifications.map(notif => (
+                {notifications.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No notifications</p>
+                ) : notifications.map(notif => (
                   <div key={notif.id} className={`p-3.5 rounded-xl border transition-all hover:shadow-sm ${
                     notif.isRead
                       ? 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900'

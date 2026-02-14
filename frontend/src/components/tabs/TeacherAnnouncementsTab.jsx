@@ -1,11 +1,29 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Megaphone, Plus, Send, Trash2, Edit, AlertCircle, Clock, X, Users, CheckCircle } from 'lucide-react'
-import { teacherAnnouncements } from '../../data/mockData'
+
+const ANNOUNCEMENTS_STORAGE_KEY = 'teacher_announcements'
 
 function TeacherAnnouncementsTab() {
-  const [announcements, setAnnouncements] = useState(teacherAnnouncements)
+  const [announcements, setAnnouncements] = useState([])
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ title: '', message: '', priority: 'normal', targetClass: 'all' })
+
+  // Load announcements from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(ANNOUNCEMENTS_STORAGE_KEY)
+    if (saved) {
+      try {
+        setAnnouncements(JSON.parse(saved))
+      } catch (e) {
+        console.error('Error loading announcements:', e)
+      }
+    }
+  }, [])
+
+  // Save announcements to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem(ANNOUNCEMENTS_STORAGE_KEY, JSON.stringify(announcements))
+  }, [announcements])
 
   const handleCreate = () => {
     if (!form.title || !form.message) return alert('Please fill in title and message.')

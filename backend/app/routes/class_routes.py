@@ -45,7 +45,9 @@ async def create_class(
             detail="Class ID already exists"
         )
     
-    # Create class document
+    # Create class document with multi-college fields auto-assigned from teacher
+    # NOTE: college_name and department_name are NOT sent from frontend
+    # They are extracted from the authenticated teacher's profile for security
     class_doc = {
         "class_id": class_data.class_id,
         "title": class_data.title,
@@ -56,7 +58,11 @@ async def create_class(
         "duration_minutes": class_data.duration_minutes,
         "is_active": False,
         "enrolled_students": [],
-        "created_at": datetime.utcnow()
+        "created_at": datetime.utcnow(),
+        # Multi-college system fields (internal use only)
+        "college_name": current_user.college_name,
+        "department_name": current_user.department_name,
+        "created_by": current_user.id
     }
     
     # Insert into database
@@ -96,8 +102,14 @@ async def get_student_classes(
 ):
     """
     Get all classes the current student is enrolled in.
+    Only returns classes from the student's college and department.
     """
-    cursor = db.classes.find({"enrolled_students": current_user.id})
+    # Filter by enrolled status AND matching college/department
+    cursor = db.classes.find({
+        "enrolled_students": current_user.id,
+        "college_name": current_user.college_name,
+        "department_name": current_user.department_name
+    })
     classes = []
     
     async for class_doc in cursor:
@@ -105,6 +117,33 @@ async def get_student_classes(
         classes.append(ClassResponse(**class_doc))
     
     logger.info(f"✓ Retrieved {len(classes)} classes for student {current_user.name}")
+    return classes
+
+
+@router.get("/student/available", response_model=List[ClassResponse])
+async def get_available_classes(
+    current_user: User = Depends(get_current_student),
+    db=Depends(get_db)
+):
+    """
+    Get all available classes in the student's college and department.
+    This allows students to browse classes they can join.
+    
+    Multi-college filtering: Only shows classes from student's college/department.
+    """
+    # Find all classes in student's college and department (not enrolled yet)
+    cursor = db.classes.find({
+        "college_name": current_user.college_name,
+        "department_name": current_user.department_name,
+        "enrolled_students": {"$ne": current_user.id}  # Not already enrolled
+    })
+    classes = []
+    
+    async for class_doc in cursor:
+        class_doc["id"] = str(class_doc["_id"])
+        classes.append(ClassResponse(**class_doc))
+    
+    logger.info(f"✓ Found {len(classes)} available classes for student {current_user.name}")
     return classes
 
 
@@ -117,6 +156,9 @@ async def get_class(
     """
     Get class details by class_id.
     
+    Multi-college validation: Users can only view classes from their
+    own college and department.
+    
     Args:
         class_id: Class identifier
         current_user: Authenticated user
@@ -126,7 +168,7 @@ async def get_class(
         Class information
         
     Raises:
-        HTTPException: If class not found
+        HTTPException: If class not found or unauthorized
     """
     class_doc = await db.classes.find_one({"class_id": class_id})
     
@@ -135,6 +177,22 @@ async def get_class(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Class not found"
         )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # MULTI-COLLEGE VALIDATION: Verify user belongs to same college/dept
+    # ═══════════════════════════════════════════════════════════════════
+    if class_doc.get("college_name") != current_user.college_name:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot access classes from a different college"
+        )
+    
+    if class_doc.get("department_name") != current_user.department_name:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot access classes from a different department"
+        )
+    # ═══════════════════════════════════════════════════════════════════
     
     class_doc["id"] = str(class_doc["_id"])
     return ClassResponse(**class_doc)
@@ -149,6 +207,9 @@ async def join_class(
     """
     Student joins a class using class_id.
     
+    Multi-college validation: Student can only join classes from their
+    own college and department.
+    
     Args:
         class_id: Class identifier to join
         current_user: Authenticated student
@@ -158,7 +219,7 @@ async def join_class(
         Success message
         
     Raises:
-        HTTPException: If class not found or already enrolled
+        HTTPException: If class not found, unauthorized, or already enrolled
     """
     class_doc = await db.classes.find_one({"class_id": class_id})
     
@@ -167,6 +228,25 @@ async def join_class(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Class not found"
         )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # MULTI-COLLEGE VALIDATION: Verify student belongs to same college/dept
+    # Security: Always extract from JWT (current_user), never trust frontend
+    # ═══════════════════════════════════════════════════════════════════
+    if class_doc.get("college_name") != current_user.college_name:
+        logger.warning(f"✗ Student {current_user.id} tried to join class from different college")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot join classes from a different college"
+        )
+    
+    if class_doc.get("department_name") != current_user.department_name:
+        logger.warning(f"✗ Student {current_user.id} tried to join class from different department")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot join classes from a different department"
+        )
+    # ═══════════════════════════════════════════════════════════════════
     
     # Check if already enrolled
     if current_user.id in class_doc.get("enrolled_students", []):
@@ -338,6 +418,54 @@ async def deactivate_class(
         "message": "Class ended",
         "class_id": class_id,
         "ended_at": ended_at.isoformat()
+    }
+
+
+@router.delete("/{class_id}", response_model=dict)
+async def delete_class(
+    class_id: str,
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """
+    Delete a class (teacher only).
+    
+    Args:
+        class_id: Class identifier
+        current_user: Authenticated teacher
+        db: Database instance
+        
+    Returns:
+        Success message
+        
+    Raises:
+        HTTPException: If class not found or unauthorized
+    """
+    class_doc = await db.classes.find_one({"class_id": class_id})
+    
+    if not class_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+    
+    if class_doc["teacher_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this class"
+        )
+    
+    # Delete the class
+    await db.classes.delete_one({"_id": class_doc["_id"]})
+    
+    # Also delete related attendance records
+    await db.attendance.delete_many({"class_id": class_id})
+    
+    logger.info(f"✓ Class {class_id} deleted by teacher {current_user.name}")
+    
+    return {
+        "message": "Class deleted successfully",
+        "class_id": class_id
     }
 
 

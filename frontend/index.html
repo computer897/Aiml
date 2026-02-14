@@ -2,18 +2,92 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    
+    <!-- Primary favicon -->
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="icon" type="image/png" href="/icons/icon-192x192.png" sizes="192x192" />
+    
+    <!-- Viewport and responsive -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="description" content="Real-Time Student Engagement Monitoring in Virtual Classrooms" />
-    <meta name="theme-color" content="#4f46e5" />
+    
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="VC Room - AI-Powered Virtual Classroom with Real-Time Student Engagement Monitoring, Face-Based Attendance, and Interactive Learning" />
+    <meta name="theme-color" content="#1e3a5f" />
+    <meta name="background-color" content="#ffffff" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="VC Room" />
+    
+    <!-- Apple/iOS PWA Meta Tags -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="VC Room" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="167x167" href="/icons/icon-192x192.png" />
+    
+    <!-- Apple Splash Screens (iPhone X and similar) -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    
+    <!-- Microsoft/Windows Meta Tags -->
+    <meta name="msapplication-TileColor" content="#1e3a5f" />
+    <meta name="msapplication-TileImage" content="/icons/icon-144x144.png" />
+    <meta name="msapplication-config" content="none" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Preconnect for performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <title>Virtual Classroom - AI Engagement Monitor</title>
+    
+    <!-- Page Title -->
+    <title>VC Room - Virtual Classroom</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+      // Register PWA Service Worker
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', async () => {
+          try {
+            const registration = await navigator.serviceWorker.register('/service-worker.js', {
+              scope: '/'
+            });
+            
+            console.log('[PWA] Service Worker registered successfully:', registration.scope);
+            
+            // Handle updates
+            registration.addEventListener('updatefound', () => {
+              const newWorker = registration.installing;
+              console.log('[PWA] New Service Worker installing...');
+              
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  // New content available
+                  console.log('[PWA] New content available');
+                  
+                  // Dispatch custom event for UI to handle
+                  window.dispatchEvent(new CustomEvent('sw-update-available', {
+                    detail: { registration }
+                  }));
+                }
+              });
+            });
+            
+          } catch (error) {
+            console.error('[PWA] Service Worker registration failed:', error);
+          }
+        });
+        
+        // Handle controller change (new SW activated)
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          console.log('[PWA] Controller changed, reloading for new content...');
+        });
+      }
+    </script>
   </body>
 </html>
