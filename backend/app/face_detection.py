@@ -243,16 +243,23 @@ class FaceDetector:
             logger.info("✓ Face detector cleaned up")
 
 
-# Global face detector instance
-face_detector = FaceDetector()
+# Global face detector instance (lazy initialization)
+_face_detector: Optional[FaceDetector] = None
 
 
 def get_face_detector() -> FaceDetector:
     """
-    Get the global face detector instance.
+    Get the global face detector instance (lazy initialization).
     Used for dependency injection.
     
     Returns:
         FaceDetector instance
     """
-    return face_detector
+    global _face_detector
+    if _face_detector is None:
+        _face_detector = FaceDetector()
+    return _face_detector
+
+
+# Keep backward compatibility alias
+face_detector = None  # Will be None until get_face_detector() is called

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Mail, Lock, User, Eye, EyeOff, ArrowRight, BookOpen, Users } from 'lucide-react'
+import { GraduationCap, Mail, Lock, User, Eye, EyeOff, ArrowRight, BookOpen, Users } from 'lucide-react'
 import { authAPI } from '../services/api'
 
 function SignUp({ setUser }) {
@@ -68,11 +68,11 @@ function SignUp({ setUser }) {
         </div>
 
         <div className="relative text-center lg:text-left max-w-lg animate-fade-in-up py-8 lg:py-0">
-          <div className="inline-flex items-center justify-center w-20 h-20 lg:w-24 lg:h-24 bg-white/10 backdrop-blur rounded-2xl mb-6 lg:mb-8 shadow-2xl p-2">
-            <img src="/logo.png" alt="VC Room" className="w-full h-full object-contain" />
+          <div className="inline-flex items-center justify-center w-16 h-16 lg:w-20 lg:h-20 bg-white/10 backdrop-blur rounded-2xl mb-6 lg:mb-8 shadow-2xl">
+            <GraduationCap className="w-9 h-9 lg:w-11 lg:h-11 text-white" />
           </div>
           <h1 className="text-3xl lg:text-4xl xl:text-5xl font-extrabold text-white mb-4 leading-tight">
-            Join VC Room
+            Join the<br />Future of Learning
           </h1>
           <p className="text-primary-200 text-base lg:text-lg leading-relaxed max-w-md">
             Create your account and start experiencing AI-powered virtual classrooms with real-time engagement tracking.
@@ -100,10 +100,10 @@ function SignUp({ setUser }) {
         <div className="w-full max-w-sm sm:max-w-md animate-fade-in-up">
           {/* Mobile Logo */}
           <div className="sm:hidden text-center mb-5">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-white dark:bg-gray-800 rounded-2xl mb-3 shadow-lg p-2">
-              <img src="/logo.png" alt="VC Room" className="w-full h-full object-contain" />
+            <div className="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-primary-600 to-primary-700 rounded-2xl mb-3 shadow-lg shadow-primary-600/25">
+              <GraduationCap className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">VC Room</h1>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Virtual Classroom</h1>
           </div>
 
           <div className="mb-5 sm:mb-6">

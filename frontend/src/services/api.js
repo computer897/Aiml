@@ -115,12 +115,6 @@ export const classAPI = {
     })
   },
 
-  delete: async (classId) => {
-    return apiRequest(`/class/${classId}`, {
-      method: 'DELETE',
-    })
-  },
-
   getTeacherClasses: async () => {
     return apiRequest('/class/teacher/classes')
   },
@@ -132,14 +126,13 @@ export const classAPI = {
 
 // Attendance APIs
 export const attendanceAPI = {
-  start: async (classId, sessionId) => {
+  start: async (classId) => {
     return apiRequest('/attendance/start', {
       method: 'POST',
-      body: JSON.stringify({ class_id: classId, session_id: sessionId }),
+      body: JSON.stringify({ class_id: classId }),
     })
   },
 
-  // DEPRECATED: Legacy frame-based tracking (sends images to backend)
   submitFrame: async (attendanceId, frameBase64) => {
     return apiRequest('/attendance/frame', {
       method: 'POST',
@@ -150,50 +143,15 @@ export const attendanceAPI = {
     })
   },
 
-  /**
-   * Submit metadata-only attendance update (PRIVACY-FOCUSED)
-   * No video/images are sent - only detection metadata from browser-side processing
-   * 
-   * @param {Object} metadata - Face detection metadata
-   * @param {string} metadata.student_id
-   * @param {string} metadata.class_id
-   * @param {string} metadata.session_id
-   * @param {boolean} metadata.face_detected
-   * @param {boolean} metadata.multiple_faces
-   * @param {number} metadata.attention_score (0-100)
-   * @param {string} metadata.timestamp (ISO string)
-   */
-  submitMetadata: async (metadata) => {
-    return apiRequest('/attendance/metadata', {
-      method: 'POST',
-      body: JSON.stringify(metadata),
-    })
-  },
-
-  end: async (sessionId) => {
+  end: async (attendanceId) => {
     return apiRequest('/attendance/end', {
       method: 'POST',
-      body: JSON.stringify({ session_id: sessionId }),
+      body: JSON.stringify({ attendance_id: attendanceId }),
     })
   },
 
   getReport: async (classId, sessionId) => {
     return apiRequest(`/attendance/report/${classId}/${sessionId}`)
-  },
-
-  // Get live attendance for a class (for teacher dashboard)
-  getLiveAttendance: async (classId) => {
-    return apiRequest(`/attendance/live/${classId}`)
-  },
-
-  // Export attendance as CSV
-  exportCSV: async (classId, sessionId) => {
-    const token = getAuthToken()
-    const response = await fetch(`${API_BASE_URL}/attendance/export/${classId}/${sessionId}?format=csv`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    if (!response.ok) throw new Error('Failed to export attendance')
-    return response.blob()
   },
 
   getStudentHistory: async (studentId) => {
