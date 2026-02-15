@@ -1,11 +1,22 @@
 import { useState, useRef, useEffect } from 'react'
-import { Bell, Search, ChevronDown, User, LogOut, Download } from 'lucide-react'
-import { usePWAInstall } from '../hooks/usePWAInstall'
+import { Bell, Search, ChevronDown, User, LogOut, GraduationCap, Sun, Sunset, Moon } from 'lucide-react'
 
-function Header({ user, onLogout, title, sidebarCollapsed, onOpenSettings }) {
+// Get time-based greeting
+function getGreeting() {
+  const hour = new Date().getHours()
+  if (hour < 12) {
+    return { text: 'Good Morning', icon: Sun }
+  } else if (hour < 17) {
+    return { text: 'Good Afternoon', icon: Sunset }
+  } else {
+    return { text: 'Good Evening', icon: Moon }
+  }
+}
+
+function Header({ user, onLogout, title, sidebarCollapsed }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [greeting, setGreeting] = useState(getGreeting())
   const dropdownRef = useRef(null)
-  const { isInstallable, promptInstall, isInstalled } = usePWAInstall()
 
   useEffect(() => {
     function handleClick(e) {
@@ -17,54 +28,45 @@ function Header({ user, onLogout, title, sidebarCollapsed, onOpenSettings }) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const handleInstall = async () => {
-    await promptInstall()
-  }
+  // Update greeting every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setGreeting(getGreeting())
+    }, 60000)
+    return () => clearInterval(interval)
+  }, [])
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'
   const isTeacher = user?.role === 'teacher'
+  const firstName = user?.name?.split(' ')[0] || 'User'
+  const GreetingIcon = greeting.icon
 
   return (
     <header className={`sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 transition-all duration-300 ${
       sidebarCollapsed ? 'lg:pl-[72px]' : 'lg:pl-[240px]'
     }`}>
       <div className="flex items-center justify-between h-16 px-4 sm:px-6">
-        {/* Left: Mobile logo + Welcome */}
+        {/* Left: Mobile logo + Page title */}
         <div className="flex items-center gap-3">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2">
-            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center p-0.5">
-              <img src="/logo.png" alt="VC Room" className="w-full h-full object-contain" />
+            <div className="w-8 h-8 bg-gradient-to-br from-primary-600 to-primary-700 rounded-lg flex items-center justify-center">
+              <GraduationCap className="w-4 h-4 text-white" />
             </div>
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
-              {(() => {
-                const hour = new Date().getHours()
-                if (hour < 12) return 'Good Morning'
-                if (hour < 17) return 'Good Afternoon'
-                return 'Good Evening'
-              })()}
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <GreetingIcon className="w-5 h-5 text-amber-500" />
+              {greeting.text}, {firstName}!
             </h1>
             <p className="text-xs text-gray-400 hidden sm:block">
-              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </p>
           </div>
         </div>
 
-        {/* Right: Install, Search, Notifications, Avatar */}
+        {/* Right: Search, Notifications, Avatar */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Install App Button */}
-          {isInstallable && !isInstalled && (
-            <button
-              onClick={handleInstall}
-              className="hidden sm:flex items-center gap-2 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-xl transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Install App
-            </button>
-          )}
-
           {/* Search - desktop only */}
           <div className="hidden md:flex items-center relative">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none">
@@ -90,7 +92,7 @@ function Header({ user, onLogout, title, sidebarCollapsed, onOpenSettings }) {
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center gap-2 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
+              className="flex items-center gap-2.5 p-1.5 pr-2 sm:pr-3 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
             >
               <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm ${
                 isTeacher
@@ -98,6 +100,12 @@ function Header({ user, onLogout, title, sidebarCollapsed, onOpenSettings }) {
                   : 'bg-gradient-to-br from-primary-500 to-primary-700'
               }`}>
                 {initials}
+              </div>
+              <div className="hidden sm:block text-left">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white leading-tight truncate max-w-[120px]">
+                  {user?.name || 'User'}
+                </p>
+                <p className="text-[11px] text-gray-400 capitalize">{user?.role || 'student'}</p>
               </div>
               <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform hidden sm:block ${dropdownOpen ? 'rotate-180' : ''}`} />
             </button>
@@ -131,10 +139,7 @@ function Header({ user, onLogout, title, sidebarCollapsed, onOpenSettings }) {
 
                 {/* Menu items */}
                 <div className="p-2">
-                  <button 
-                    onClick={() => { setDropdownOpen(false); onOpenSettings && onOpenSettings() }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
-                  >
+                  <button className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">
                     <User className="w-4 h-4 text-gray-400" />
                     Profile
                   </button>

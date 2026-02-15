@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Video, Clock, BookOpen, Search, ArrowRight, Download, Eye,
-  Play, Calendar, Bell, Star, FileText, ChevronRight, Users
+  Play, Calendar, Bell, Star, FileText, ChevronRight, Users, CheckCircle
 } from 'lucide-react'
 import { classAPI } from '../services/api'
+import { notifyClassEvent, notifySuccess } from '../services/notifications'
 import DashboardLayout from '../layouts/DashboardLayout'
 import StudentClassesTab from '../components/tabs/StudentClassesTab'
 import StudentNotesTab from '../components/tabs/StudentNotesTab'
@@ -55,7 +56,14 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
     if (!classId) { const id = prompt('Enter Class ID to join:'); if (!id) return; classId = id }
     setLoading(true)
     try {
-      try { await classAPI.join(classId) } catch (e) { if (!e.message?.includes('Already enrolled')) throw e }
+      try { 
+        await classAPI.join(classId)
+        // Notify on successful enrollment
+        notifyClassEvent('Class Joined', `You have successfully enrolled in the class!`)
+      } catch (e) { 
+        if (!e.message?.includes('Already enrolled')) throw e 
+      }
+      notifySuccess('Joining Class', 'Connecting to classroom...')
       navigate(`/classroom/${classId}`)
     } catch (error) { alert('Failed to join class: ' + error.message) } finally { setLoading(false) }
   }

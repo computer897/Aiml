@@ -51,9 +51,9 @@ class UserCreate(BaseModel):
         description="Password must be 8-64 characters",
     )
     role: UserRole
-    # Multi-college system fields - required during registration
-    college_name: str = Field(..., min_length=2, max_length=200, description="College name")
-    department_name: str = Field(..., min_length=2, max_length=200, description="Department name")
+    # College fields - optional (Google Meet style - anyone can join with class ID)
+    college_name: Optional[str] = Field(None, max_length=200, description="College name (optional)")
+    department_name: Optional[str] = Field(None, max_length=200, description="Department name (optional)")
 
 
 class UserLogin(BaseModel):
@@ -84,12 +84,14 @@ class Class(BaseModel):
     schedule_time: datetime
     duration_minutes: int = Field(..., gt=0, description="Expected class duration in minutes")
     is_active: bool = Field(default=False, description="Whether class is currently in session")
+    is_finished: bool = Field(default=False, description="Whether class has ended")
+    ended_at: Optional[datetime] = Field(None, description="When the class ended")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     enrolled_students: List[str] = Field(default_factory=list, description="List of student IDs")
-    # Multi-college system fields (INTERNAL USE ONLY - not exposed in API responses)
-    college_name: str = Field(..., description="College name for filtering (internal)")
-    department_name: str = Field(..., description="Department name for filtering (internal)")
-    created_by: str = Field(..., description="Teacher ID who created this class")
+    # Multi-college fields are now optional (Google Meet style - anyone can join with class ID)
+    college_name: Optional[str] = Field(None, description="College name (optional)")
+    department_name: Optional[str] = Field(None, description="Department name (optional)")
+    created_by: Optional[str] = Field(None, description="Teacher ID who created this class")
     
     class Config:
         populate_by_name = True

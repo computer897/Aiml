@@ -88,12 +88,19 @@ async def create_class(
 @router.get("/teacher/classes", response_model=List[ClassResponse])
 async def get_teacher_classes(
     current_user: User = Depends(get_current_teacher),
+    include_finished: bool = False,
     db=Depends(get_db)
 ):
     """
     Get all classes created by the current teacher.
+    By default, excludes finished classes (auto-cleanup).
     """
-    cursor = db.classes.find({"teacher_id": current_user.id})
+    query = {"teacher_id": current_user.id}
+    if not include_finished:
+        # Exclude finished classes from the list
+        query["$or"] = [{"is_finished": {"$ne": True}}, {"is_finished": {"$exists": False}}]
+    
+    cursor = db.classes.find(query)
     classes = []
     
     async for class_doc in cursor:
@@ -107,18 +114,21 @@ async def get_teacher_classes(
 @router.get("/student/classes", response_model=List[ClassResponse])
 async def get_student_classes(
     current_user: User = Depends(get_current_student),
+    include_finished: bool = False,
     db=Depends(get_db)
 ):
     """
     Get all classes the current student is enrolled in.
-    Only returns classes from the student's college and department.
+    Google Meet style - shows all enrolled classes regardless of college/department.
+    By default, excludes finished classes (auto-cleanup).
     """
-    # Filter by enrolled status AND matching college/department
-    cursor = db.classes.find({
-        "enrolled_students": current_user.id,
-        "college_name": current_user.college_name,
-        "department_name": current_user.department_name
-    })
+    # Build query - filter by enrolled status
+    query = {"enrolled_students": current_user.id}
+    if not include_finished:
+        # Exclude finished classes from the list
+        query["$or"] = [{"is_finished": {"$ne": True}}, {"is_finished": {"$exists": False}}]
+    
+    cursor = db.classes.find(query)
     classes = []
     
     async for class_doc in cursor:
@@ -135,16 +145,13 @@ async def get_available_classes(
     db=Depends(get_db)
 ):
     """
-    Get all available classes in the student's college and department.
-    This allows students to browse classes they can join.
-    
-    Multi-college filtering: Only shows classes from student's college/department.
+    Get all available classes the student can join.
+    Google Meet style - shows all active classes not yet enrolled.
     """
-    # Find all classes in student's college and department (not enrolled yet)
+    # Find all non-enrolled, non-finished classes (Google Meet style)
     cursor = db.classes.find({
-        "college_name": current_user.college_name,
-        "department_name": current_user.department_name,
-        "enrolled_students": {"$ne": current_user.id}  # Not already enrolled
+        "enrolled_students": {"$ne": current_user.id},  # Not already enrolled
+        "$or": [{"is_finished": {"$ne": True}}, {"is_finished": {"$exists": False}}]
     })
     classes = []
     
@@ -165,8 +172,8 @@ async def get_class(
     """
     Get class details by class_id.
     
-    Multi-college validation: Users can only view classes from their
-    own college and department.
+    Google Meet style: Any authenticated user can view class details
+    using the class ID. No college/department restrictions.
     
     Args:
         class_id: Class identifier
@@ -177,7 +184,7 @@ async def get_class(
         Class information
         
     Raises:
-        HTTPException: If class not found or unauthorized
+        HTTPException: If class not found
     """
     class_doc = await db.classes.find_one({"class_id": class_id})
     
@@ -187,21 +194,8 @@ async def get_class(
             detail="Class not found"
         )
     
-    # ═══════════════════════════════════════════════════════════════════
-    # MULTI-COLLEGE VALIDATION: Verify user belongs to same college/dept
-    # ═══════════════════════════════════════════════════════════════════
-    if class_doc.get("college_name") != current_user.college_name:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot access classes from a different college"
-        )
-    
-    if class_doc.get("department_name") != current_user.department_name:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot access classes from a different department"
-        )
-    # ═══════════════════════════════════════════════════════════════════
+    # Google Meet style - anyone with the class ID can access
+    # No college/department restrictions
     
     class_doc["id"] = str(class_doc["_id"])
     return ClassResponse(**class_doc)
@@ -216,8 +210,8 @@ async def join_class(
     """
     Student joins a class using class_id.
     
-    Multi-college validation: Student can only join classes from their
-    own college and department.
+    Google Meet style: Any student can join any class with the class ID.
+    No college/department restrictions.
     
     Args:
         class_id: Class identifier to join
@@ -228,7 +222,7 @@ async def join_class(
         Success message
         
     Raises:
-        HTTPException: If class not found, unauthorized, or already enrolled
+        HTTPException: If class not found or already enrolled
     """
     class_doc = await db.classes.find_one({"class_id": class_id})
     
@@ -238,24 +232,8 @@ async def join_class(
             detail="Class not found"
         )
     
-    # ═══════════════════════════════════════════════════════════════════
-    # MULTI-COLLEGE VALIDATION: Verify student belongs to same college/dept
-    # Security: Always extract from JWT (current_user), never trust frontend
-    # ═══════════════════════════════════════════════════════════════════
-    if class_doc.get("college_name") != current_user.college_name:
-        logger.warning(f"✗ Student {current_user.id} tried to join class from different college")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot join classes from a different college"
-        )
-    
-    if class_doc.get("department_name") != current_user.department_name:
-        logger.warning(f"✗ Student {current_user.id} tried to join class from different department")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot join classes from a different department"
-        )
-    # ═══════════════════════════════════════════════════════════════════
+    # Google Meet style - anyone with the class ID can join
+    # No college/department restrictions
     
     # Check if already enrolled
     if current_user.id in class_doc.get("enrolled_students", []):

@@ -65,17 +65,10 @@ const apiRequest = async (endpoint, options = {}) => {
 
 // Authentication APIs
 export const authAPI = {
-  register: async (name, email, password, role, collegeName, departmentName) => {
+  register: async (name, email, password, role) => {
     return apiRequest('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ 
-        name, 
-        email, 
-        password, 
-        role,
-        college_name: collegeName,
-        department_name: departmentName
-      }),
+      body: JSON.stringify({ name, email, password, role }),
     })
   },
 
@@ -83,24 +76,6 @@ export const authAPI = {
     return apiRequest('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
-    })
-  },
-
-  getProfile: async () => {
-    return apiRequest('/auth/me')
-  },
-
-  updateProfile: async (profileData) => {
-    return apiRequest('/auth/profile', {
-      method: 'PUT',
-      body: JSON.stringify(profileData),
-    })
-  },
-
-  updatePassword: async (currentPassword, newPassword) => {
-    return apiRequest('/auth/password', {
-      method: 'PUT',
-      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     })
   },
 }
@@ -116,19 +91,6 @@ export const classAPI = {
 
   get: async (classId) => {
     return apiRequest(`/class/${classId}`)
-  },
-
-  update: async (classId, classData) => {
-    return apiRequest(`/class/${classId}`, {
-      method: 'PUT',
-      body: JSON.stringify(classData),
-    })
-  },
-
-  delete: async (classId) => {
-    return apiRequest(`/class/${classId}`, {
-      method: 'DELETE',
-    })
   },
 
   join: async (classId) => {
@@ -159,39 +121,6 @@ export const classAPI = {
 
   getStudentClasses: async () => {
     return apiRequest('/class/student/classes')
-  },
-
-  getAvailableClasses: async () => {
-    return apiRequest('/class/student/available')
-  },
-}
-
-// Join Request APIs (Google Meet style)
-export const joinRequestAPI = {
-  create: async (classId) => {
-    return apiRequest(`/join-request/${classId}`, {
-      method: 'POST',
-    })
-  },
-
-  getPending: async (classId) => {
-    return apiRequest(`/join-request/pending/${classId}`)
-  },
-
-  accept: async (requestId) => {
-    return apiRequest(`/join-request/${requestId}/accept`, {
-      method: 'POST',
-    })
-  },
-
-  reject: async (requestId) => {
-    return apiRequest(`/join-request/${requestId}/reject`, {
-      method: 'POST',
-    })
-  },
-
-  getStatus: async (classId) => {
-    return apiRequest(`/join-request/status/${classId}`)
   },
 }
 
@@ -227,103 +156,6 @@ export const attendanceAPI = {
 
   getStudentHistory: async (studentId) => {
     return apiRequest(`/attendance/student/${studentId}`)
-  },
-
-  exportCsv: async (classId, sessionId) => {
-    // Returns the URL to download the CSV file
-    const token = getAuthToken()
-    const url = `${API_BASE_URL}/attendance/export/${classId}/${sessionId}?format=csv`
-    
-    // Create download link with auth
-    const response = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Download failed' }))
-      throw new Error(error.detail || 'Failed to export attendance')
-    }
-    
-    // Download the CSV
-    const blob = await response.blob()
-    const downloadUrl = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = downloadUrl
-    a.download = `attendance_${classId}_${sessionId}.csv`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    window.URL.revokeObjectURL(downloadUrl)
-    
-    return { success: true }
-  },
-}
-
-// Announcement APIs
-export const announcementAPI = {
-  create: async (classId, title, content, priority = 'normal') => {
-    return apiRequest('/announcements', {
-      method: 'POST',
-      body: JSON.stringify({ class_id: classId, title, content, priority }),
-    })
-  },
-
-  getByClass: async (classId) => {
-    return apiRequest(`/announcements/class/${classId}`)
-  },
-
-  markSeen: async (announcementId) => {
-    return apiRequest(`/announcements/${announcementId}/seen`, {
-      method: 'POST',
-    })
-  },
-
-  delete: async (announcementId) => {
-    return apiRequest(`/announcements/${announcementId}`, {
-      method: 'DELETE',
-    })
-  },
-
-  getSeenBy: async (announcementId) => {
-    return apiRequest(`/announcements/${announcementId}/seen-by`)
-  },
-}
-
-// Document APIs
-export const documentAPI = {
-  upload: async (classId, title, description, fileUrl, fileName, fileType, fileSize = 0) => {
-    return apiRequest('/documents', {
-      method: 'POST',
-      body: JSON.stringify({
-        class_id: classId,
-        title,
-        description,
-        file_url: fileUrl,
-        file_name: fileName,
-        file_type: fileType,
-        file_size: fileSize,
-      }),
-    })
-  },
-
-  getByClass: async (classId) => {
-    return apiRequest(`/documents/class/${classId}`)
-  },
-
-  markViewed: async (documentId) => {
-    return apiRequest(`/documents/${documentId}/view`, {
-      method: 'POST',
-    })
-  },
-
-  delete: async (documentId) => {
-    return apiRequest(`/documents/${documentId}`, {
-      method: 'DELETE',
-    })
-  },
-
-  getTeacherDocuments: async () => {
-    return apiRequest('/documents/teacher/all')
   },
 }
 

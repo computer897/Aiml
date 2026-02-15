@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Mail, Lock, User, Eye, EyeOff, ArrowRight, BookOpen, Users, Building2 } from 'lucide-react'
+import { GraduationCap, Mail, Lock, User, Eye, EyeOff, ArrowRight, BookOpen, Users } from 'lucide-react'
 import { authAPI } from '../services/api'
 
 function SignUp({ setUser }) {
@@ -10,10 +10,9 @@ function SignUp({ setUser }) {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'student',
-    collegeName: '',
-    departmentName: ''
+    role: 'student'
   })
+  // Note: college_name and department_name removed - using simple class ID join like Google Meet
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -36,29 +35,14 @@ function SignUp({ setUser }) {
       return
     }
 
-    if (!formData.collegeName.trim() || !formData.departmentName.trim()) {
-      setError('College and Department are required!')
-      setLoading(false)
-      return
-    }
-
     try {
-      await authAPI.register(
-        formData.name, 
-        formData.email, 
-        formData.password, 
-        formData.role,
-        formData.collegeName,
-        formData.departmentName
-      )
+      await authAPI.register(formData.name, formData.email, formData.password, formData.role)
       const loginResponse = await authAPI.login(formData.email, formData.password)
       const userData = {
         id: loginResponse.user.id,
         email: loginResponse.user.email,
         role: loginResponse.user.role,
         name: loginResponse.user.name,
-        collegeName: loginResponse.user.college_name,
-        departmentName: loginResponse.user.department_name,
         token: loginResponse.access_token
       }
       setUser(userData)
@@ -85,8 +69,8 @@ function SignUp({ setUser }) {
         </div>
 
         <div className="relative text-center lg:text-left max-w-lg animate-fade-in-up py-8 lg:py-0">
-          <div className="inline-flex items-center justify-center w-16 h-16 lg:w-20 lg:h-20 bg-white/10 backdrop-blur rounded-2xl mb-6 lg:mb-8 shadow-2xl p-2">
-            <img src="/logo.png" alt="VC Room" className="w-full h-full object-contain" />
+          <div className="inline-flex items-center justify-center w-16 h-16 lg:w-20 lg:h-20 bg-white/10 backdrop-blur rounded-2xl mb-6 lg:mb-8 shadow-2xl">
+            <GraduationCap className="w-9 h-9 lg:w-11 lg:h-11 text-white" />
           </div>
           <h1 className="text-3xl lg:text-4xl xl:text-5xl font-extrabold text-white mb-4 leading-tight">
             Join the<br />Future of Learning
@@ -117,8 +101,8 @@ function SignUp({ setUser }) {
         <div className="w-full max-w-sm sm:max-w-md animate-fade-in-up">
           {/* Mobile Logo */}
           <div className="sm:hidden text-center mb-5">
-            <div className="inline-flex items-center justify-center w-14 h-14 bg-white rounded-2xl mb-3 shadow-lg shadow-primary-600/25 p-1.5">
-              <img src="/logo.png" alt="VC Room" className="w-full h-full object-contain" />
+            <div className="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-primary-600 to-primary-700 rounded-2xl mb-3 shadow-lg shadow-primary-600/25">
+              <GraduationCap className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Virtual Classroom</h1>
           </div>
@@ -188,38 +172,6 @@ function SignUp({ setUser }) {
                   placeholder="name@example.com" required
                   className="input-base input-with-icon"
                 />
-              </div>
-            </div>
-
-            {/* College & Department */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="collegeName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">College Name</label>
-                <div className="relative group">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none">
-                    <Building2 className="w-5 h-5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-                  </div>
-                  <input
-                    id="collegeName" name="collegeName" type="text"
-                    value={formData.collegeName} onChange={handleChange}
-                    placeholder="Enter college name" required
-                    className="input-base input-with-icon"
-                  />
-                </div>
-              </div>
-              <div>
-                <label htmlFor="departmentName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Department</label>
-                <div className="relative group">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none">
-                    <BookOpen className="w-5 h-5 text-gray-400 group-focus-within:text-primary-500 transition-colors" />
-                  </div>
-                  <input
-                    id="departmentName" name="departmentName" type="text"
-                    value={formData.departmentName} onChange={handleChange}
-                    placeholder="E.g., Computer Science" required
-                    className="input-base input-with-icon"
-                  />
-                </div>
               </div>
             </div>
 

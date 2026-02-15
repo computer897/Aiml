@@ -5,6 +5,7 @@ import {
   Bell, ChevronRight, BookOpen, Play, AlertCircle
 } from 'lucide-react'
 import { classAPI, attendanceAPI } from '../services/api'
+import { notifyClassEvent, notifySuccess } from '../services/notifications'
 import DashboardLayout from '../layouts/DashboardLayout'
 import AttendanceTable from '../components/AttendanceTable'
 import CreateClassModal from '../components/CreateClassModal'
@@ -58,7 +59,14 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
         duration_minutes: parseInt(formData.duration),
       }
       const response = await classAPI.create(classData)
-      alert(`Classroom "${response.title}" created successfully!`)
+      
+      // Send notification about new class
+      notifyClassEvent(
+        'New Class Created',
+        `"${response.title}" has been created. Class ID: ${response.class_id}`
+      )
+      notifySuccess('Success', `Classroom "${response.title}" created successfully!`)
+      
       setIsModalOpen(false)
       await loadTeacherData()
     } catch (error) { alert('Failed to create class: ' + error.message) } finally { setLoading(false) }

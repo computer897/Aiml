@@ -111,10 +111,10 @@ function StudentClassesTab({ onJoinClass }) {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Total Classes', value: classes.length, icon: BookOpen, color: 'primary' },
+              { label: 'Enrolled Classes', value: classes.length, icon: BookOpen, color: 'primary' },
               { label: 'Active Now', value: classes.filter(c => c.is_active).length, icon: Calendar, color: 'cyan' },
-              { label: 'Teachers', value: [...new Set(classes.map(c => c.teacher))].length, icon: Users, color: 'purple' },
-              { label: 'Enrolled', value: classes.length, icon: Clock, color: 'amber' },
+              { label: 'Upcoming', value: classes.filter(c => c.schedule_time && new Date(c.schedule_time) > new Date() && !c.is_active).length, icon: Clock, color: 'purple' },
+              { label: 'Completed', value: classes.filter(c => c.is_finished).length, icon: Users, color: 'amber' },
             ].map((stat, i) => {
               const c = colorMap[stat.color]
               return (
