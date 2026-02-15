@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app import database
-from app.routes import auth_router, class_router, attendance_router
+from app.routes import auth_router, class_router, attendance_router, join_request_router, announcement_router, document_router
 from app.config import settings
 import logging
 
@@ -72,6 +72,9 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(class_router)
 app.include_router(attendance_router)
+app.include_router(join_request_router)
+app.include_router(announcement_router)
+app.include_router(document_router)
 
 
 @app.get("/", tags=["Root"])

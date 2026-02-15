@@ -3,7 +3,7 @@ import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import SettingsPanel from '../components/SettingsPanel'
 
-function DashboardLayout({ children, user, onLogout, title }) {
+function DashboardLayout({ children, user, onLogout, onUserUpdate, title }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -32,6 +32,7 @@ function DashboardLayout({ children, user, onLogout, title }) {
         onLogout={onLogout}
         title={title}
         sidebarCollapsed={sidebarCollapsed}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       {/* Main Content */}
@@ -49,6 +50,7 @@ function DashboardLayout({ children, user, onLogout, title }) {
         onClose={() => setSettingsOpen(false)}
         user={user}
         onLogout={onLogout}
+        onUserUpdate={onUserUpdate}
       />
     </div>
   )

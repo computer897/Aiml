@@ -1,18 +1,17 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, BookOpen, StickyNote, Video, MessageSquare,
+  LayoutDashboard, BookOpen, StickyNote, Video,
   Calendar, Settings, LogOut, ChevronLeft, ChevronRight,
-  PlusSquare, List, Users, Sparkles, FileText, Megaphone
+  PlusSquare, List, Users, FileText, Megaphone
 } from 'lucide-react'
 
 // ── Student nav items ──
 const studentNavItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'classes', label: 'Classes', icon: BookOpen },
-  { id: 'notes', label: 'Notes', icon: StickyNote },
+  { id: 'notes', label: 'Notes & Materials', icon: StickyNote, route: '/documents' },
   { id: 'recordings', label: 'Recordings', icon: Video },
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'calendar', label: 'Calendar', icon: Calendar },
 ]
 
@@ -22,9 +21,7 @@ const teacherNavItems = [
   { id: 'create-classroom', label: 'Create Classroom', icon: PlusSquare },
   { id: 'classroom-list', label: 'Classroom List', icon: List },
   { id: 'attending-students', label: 'Attending Students', icon: Users },
-  { id: 'ai-study-plan', label: 'AI Study Plan', icon: Sparkles },
-  { id: 'notes-materials', label: 'Notes & Materials', icon: FileText },
-  { id: 'announcements', label: 'Announcements', icon: Megaphone },
+  { id: 'announcements', label: 'Announcements', icon: Megaphone, route: '/announcements' },
 ]
 
 const bottomItems = [
@@ -70,8 +67,17 @@ function SidebarItem({ item, isActive, collapsed, hoveredItem, onHover, onLeave,
 
 function Sidebar({ collapsed, onToggle, activeTab, onTabChange, onSettingsOpen, onLogout, role }) {
   const [hoveredItem, setHoveredItem] = useState(null)
+  const navigate = useNavigate()
 
   const navItems = role === 'teacher' ? teacherNavItems : studentNavItems
+
+  const handleNavClick = (item) => {
+    if (item.route) {
+      navigate(item.route)
+    } else {
+      onTabChange(item.id)
+    }
+  }
 
   return (
     <>
@@ -107,7 +113,7 @@ function Sidebar({ collapsed, onToggle, activeTab, onTabChange, onSettingsOpen, 
               hoveredItem={hoveredItem}
               onHover={() => setHoveredItem(item.id)}
               onLeave={() => setHoveredItem(null)}
-              onClick={() => onTabChange(item.id)}
+              onClick={() => handleNavClick(item)}
             />
           ))}
         </nav>
@@ -154,7 +160,7 @@ function Sidebar({ collapsed, onToggle, activeTab, onTabChange, onSettingsOpen, 
             return (
               <button
                 key={item.id}
-                onClick={() => onTabChange(item.id)}
+                onClick={() => handleNavClick(item)}
                 className={`flex flex-col items-center gap-0.5 py-2 px-3 rounded-xl transition-colors ${
                   isActive
                     ? 'text-primary-600 dark:text-primary-400'

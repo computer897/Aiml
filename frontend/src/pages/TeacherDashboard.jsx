@@ -18,7 +18,7 @@ import TeacherAnnouncementsTab from '../components/tabs/TeacherAnnouncementsTab'
 // Local storage key for announcements
 const ANNOUNCEMENTS_STORAGE_KEY = 'teacher_announcements'
 
-function TeacherDashboard({ user, onLogout }) {
+function TeacherDashboard({ user, onLogout, onUserUpdate }) {
   const navigate = useNavigate()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [classes, setClasses] = useState([])
@@ -394,7 +394,7 @@ function TeacherDashboard({ user, onLogout }) {
 
   return (
     <>
-      <DashboardLayout user={user} onLogout={onLogout} title="Dashboard">
+      <DashboardLayout user={user} onLogout={onLogout} onUserUpdate={onUserUpdate} title="Dashboard">
         {({ activeTab, onTabChange }) => (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 lg:py-8">
             {renderTabContent(activeTab, onTabChange)}

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { GraduationCap, Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react'
 import { authAPI } from '../services/api'
 
 function Login({ setUser }) {
@@ -23,6 +23,8 @@ function Login({ setUser }) {
         email: response.user.email,
         role: response.user.role,
         name: response.user.name,
+        collegeName: response.user.college_name,
+        departmentName: response.user.department_name,
         token: response.access_token
       }
       setUser(userData)
@@ -51,24 +53,33 @@ function Login({ setUser }) {
         </div>
 
         <div className="relative text-center lg:text-left max-w-lg animate-fade-in-up py-8 lg:py-0">
-          <div className="inline-flex items-center justify-center w-16 h-16 lg:w-20 lg:h-20 bg-white/10 backdrop-blur rounded-2xl mb-6 lg:mb-8 shadow-2xl">
-            <GraduationCap className="w-9 h-9 lg:w-11 lg:h-11 text-white" />
+          <div className="inline-flex items-center justify-center w-16 h-16 lg:w-20 lg:h-20 bg-white/10 backdrop-blur rounded-2xl mb-6 lg:mb-8 shadow-2xl p-2">
+            <img src="/logo.png" alt="VC Room" className="w-full h-full object-contain" />
           </div>
-          <h1 className="text-3xl lg:text-4xl xl:text-5xl font-extrabold text-white mb-4 leading-tight">
-            Virtual<br />Classroom
+          <h1 className="text-3xl lg:text-4xl xl:text-5xl font-extrabold text-white mb-2 leading-tight">
+            VC Room
           </h1>
+          <p className="text-primary-300 text-lg mb-4">Virtual Classroom</p>
           <p className="text-primary-200 text-base lg:text-lg leading-relaxed max-w-md">
-            AI-powered engagement monitoring for modern education. Track attendance, analyze engagement, and create interactive learning experiences.
+            AI-powered engagement monitoring for modern education. Real-time face attendance, engagement tracking, and seamless virtual learning.
           </p>
-          <div className="mt-8 lg:mt-10 flex items-center gap-4 justify-center lg:justify-start">
-            <div className="flex -space-x-2">
-              {['BG', 'SC', 'AK', 'MP'].map((initials, i) => (
-                <div key={i} className="w-9 h-9 rounded-full bg-white/20 border-2 border-white/30 flex items-center justify-center text-white text-xs font-bold backdrop-blur-sm">
-                  {initials}
-                </div>
-              ))}
+          <div className="mt-8 lg:mt-10 grid grid-cols-2 gap-3">
+            <div className="flex items-center gap-2 text-primary-200 text-sm">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              AI Attendance
             </div>
-            <p className="text-primary-200 text-sm">500+ active users</p>
+            <div className="flex items-center gap-2 text-primary-200 text-sm">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+              Live Classes
+            </div>
+            <div className="flex items-center gap-2 text-primary-200 text-sm">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+              Engagement Stats
+            </div>
+            <div className="flex items-center gap-2 text-primary-200 text-sm">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+              Privacy First
+            </div>
           </div>
         </div>
       </div>
@@ -78,10 +89,11 @@ function Login({ setUser }) {
         <div className="w-full max-w-sm sm:max-w-md animate-fade-in-up">
           {/* Mobile Logo */}
           <div className="sm:hidden text-center mb-6">
-            <div className="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-primary-600 to-primary-700 rounded-2xl mb-3 shadow-lg shadow-primary-600/25">
-              <GraduationCap className="w-8 h-8 text-white" />
+            <div className="inline-flex items-center justify-center w-14 h-14 bg-white rounded-2xl mb-3 shadow-lg shadow-primary-600/25 p-1.5">
+              <img src="/logo.png" alt="VC Room" className="w-full h-full object-contain" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Virtual Classroom</h1>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">VC Room</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Virtual Classroom</p>
           </div>
 
           <div className="mb-6 sm:mb-8">

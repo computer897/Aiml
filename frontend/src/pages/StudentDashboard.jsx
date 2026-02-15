@@ -17,7 +17,7 @@ const NOTES_STORAGE_KEY = 'student_notes'
 const RECORDINGS_STORAGE_KEY = 'class_recordings'
 const NOTIFICATIONS_STORAGE_KEY = 'student_notifications'
 
-function StudentDashboard({ user, onLogout }) {
+function StudentDashboard({ user, onLogout, onUserUpdate }) {
   const navigate = useNavigate()
   const [enrolledClasses, setEnrolledClasses] = useState([])
   const [classToJoin, setClassToJoin] = useState('')
@@ -413,7 +413,7 @@ function StudentDashboard({ user, onLogout }) {
   )
 
   return (
-    <DashboardLayout user={user} onLogout={onLogout} title="Dashboard">
+    <DashboardLayout user={user} onLogout={onLogout} onUserUpdate={onUserUpdate} title="Dashboard">
       {({ activeTab }) => (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 lg:py-8">
           {renderTabContent(activeTab)}

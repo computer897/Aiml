@@ -4,8 +4,10 @@ Handles user registration and login with JWT tokens.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.models import UserCreate, UserLogin, UserResponse
-from app.auth import hash_password, authenticate_user, create_access_token
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+from app.models import UserCreate, UserLogin, UserResponse, User
+from app.auth import hash_password, verify_password, authenticate_user, create_access_token, get_current_user
 from app.database import get_db
 from datetime import datetime
 import logging
@@ -13,6 +15,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+class ProfileUpdate(BaseModel):
+    """Schema for profile update."""
+    name: Optional[str] = None
+    college_name: Optional[str] = None
+    department_name: Optional[str] = None
+
+
+class PasswordUpdate(BaseModel):
+    """Schema for password update."""
+    current_password: str
+    new_password: str
 
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -133,4 +148,149 @@ async def login_user(credentials: UserLogin, db=Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Login error: {str(e)}"
+        )
+
+
+@router.get("/me", response_model=dict)
+async def get_current_user_profile(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get current user profile.
+    
+    Returns:
+        Current user information
+    """
+    return {
+        "id": str(current_user.id),
+        "name": current_user.name,
+        "email": current_user.email,
+        "role": current_user.role,
+        "college_name": current_user.college_name,
+        "department_name": current_user.department_name
+    }
+
+
+@router.put("/profile", response_model=dict)
+async def update_profile(
+    profile_data: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """
+    Update user profile.
+    
+    Args:
+        profile_data: Fields to update
+        current_user: Authenticated user
+        db: Database instance
+        
+    Returns:
+        Updated user information
+    """
+    from bson import ObjectId
+    
+    try:
+        # Build update document
+        update_doc = {}
+        if profile_data.name:
+            update_doc["name"] = profile_data.name
+        if profile_data.college_name:
+            update_doc["college_name"] = profile_data.college_name
+        if profile_data.department_name:
+            update_doc["department_name"] = profile_data.department_name
+        
+        if not update_doc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No fields to update"
+            )
+        
+        update_doc["updated_at"] = datetime.utcnow()
+        
+        # Update user in database
+        result = await db.users.update_one(
+            {"_id": ObjectId(current_user.id)},
+            {"$set": update_doc}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        logger.info(f"✓ Profile updated for user: {current_user.email}")
+        
+        return {
+            "message": "Profile updated successfully",
+            "updated_fields": list(update_doc.keys())
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Profile update error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update profile"
+        )
+
+
+@router.put("/password", response_model=dict)
+async def update_password(
+    password_data: PasswordUpdate,
+    current_user: User = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """
+    Update user password.
+    
+    Args:
+        password_data: Current and new password
+        current_user: Authenticated user
+        db: Database instance
+        
+    Returns:
+        Success message
+    """
+    from bson import ObjectId
+    
+    try:
+        # Get user's current password hash from database
+        user_doc = await db.users.find_one({"_id": ObjectId(current_user.id)})
+        if not user_doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Verify current password
+        if not verify_password(password_data.current_password, user_doc["password_hash"]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect"
+            )
+        
+        # Hash new password
+        new_password_hash = hash_password(password_data.new_password)
+        
+        # Update password in database
+        await db.users.update_one(
+            {"_id": ObjectId(current_user.id)},
+            {"$set": {
+                "password_hash": new_password_hash,
+                "updated_at": datetime.utcnow()
+            }}
+        )
+        
+        logger.info(f"✓ Password updated for user: {current_user.email}")
+        
+        return {"message": "Password updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Password update error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update password"
         )

@@ -4,7 +4,8 @@ Handles class creation, retrieval, and student enrollment.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
+from pydantic import BaseModel
+from typing import List, Optional
 from app.models import ClassCreate, ClassResponse, Class, User
 from app.auth import get_current_teacher, get_current_student, get_current_user
 from app.database import get_db
@@ -15,6 +16,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/class", tags=["Classroom"])
+
+
+class ClassUpdate(BaseModel):
+    """Schema for updating a class."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    schedule_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
 
 
 @router.post("/create", response_model=ClassResponse, status_code=status.HTTP_201_CREATED)
@@ -419,6 +428,75 @@ async def deactivate_class(
         "class_id": class_id,
         "ended_at": ended_at.isoformat()
     }
+
+
+@router.put("/{class_id}", response_model=ClassResponse)
+async def update_class(
+    class_id: str,
+    class_update: ClassUpdate,
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """
+    Update a class (teacher only).
+    
+    Args:
+        class_id: Class identifier
+        class_update: Fields to update
+        current_user: Authenticated teacher
+        db: Database instance
+        
+    Returns:
+        Updated class information
+        
+    Raises:
+        HTTPException: If class not found or unauthorized
+    """
+    class_doc = await db.classes.find_one({"class_id": class_id})
+    
+    if not class_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+    
+    if class_doc["teacher_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this class"
+        )
+    
+    # Build update document
+    update_doc = {}
+    if class_update.title:
+        update_doc["title"] = class_update.title
+    if class_update.description is not None:
+        update_doc["description"] = class_update.description
+    if class_update.schedule_time:
+        update_doc["schedule_time"] = class_update.schedule_time
+    if class_update.duration_minutes:
+        update_doc["duration_minutes"] = class_update.duration_minutes
+    
+    if not update_doc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields to update"
+        )
+    
+    update_doc["updated_at"] = datetime.utcnow()
+    
+    await db.classes.update_one(
+        {"_id": class_doc["_id"]},
+        {"$set": update_doc}
+    )
+    
+    # Fetch updated document
+    updated_doc = await db.classes.find_one({"class_id": class_id})
+    updated_doc["id"] = str(updated_doc["_id"])
+    
+    logger.info(f"✓ Class {class_id} updated by teacher {current_user.name}")
+    
+    return ClassResponse(**updated_doc)
 
 
 @router.delete("/{class_id}", response_model=dict)

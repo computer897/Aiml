@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   X, User, Palette, Bell, Shield, HelpCircle, LogOut,
-  Moon, Sun, Monitor, ChevronRight, Mail, Camera, Edit3
+  Moon, Sun, Monitor, ChevronRight, Mail, Camera, Edit3,
+  Building2, Briefcase, Lock, Eye, EyeOff, Mic, Video, Check, AlertCircle, Loader2
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { authAPI } from '../services/api'
 
-function SettingsPanel({ isOpen, onClose, user, onLogout }) {
+function SettingsPanel({ isOpen, onClose, user, onLogout, onUserUpdate }) {
   const { theme, setTheme } = useTheme()
   const [activeTab, setActiveTab] = useState('profile')
   const [notifications, setNotifications] = useState({
@@ -14,6 +16,203 @@ function SettingsPanel({ isOpen, onClose, user, onLogout }) {
     engagement: false,
     sounds: true,
   })
+  
+  // Profile form state
+  const [profileForm, setProfileForm] = useState({
+    name: user?.name || '',
+    email: user?.email || '',
+    collegeName: user?.college_name || user?.collegeName || '',
+    departmentName: user?.department_name || user?.departmentName || '',
+  })
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileMessage, setProfileMessage] = useState({ type: '', text: '' })
+  
+  // Password form state
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
+  const [showPasswords, setShowPasswords] = useState({
+    current: false,
+    new: false,
+    confirm: false,
+  })
+  const [passwordLoading, setPasswordLoading] = useState(false)
+  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' })
+  
+  // Camera/Mic test state
+  const [testingCamera, setTestingCamera] = useState(false)
+  const [testingMic, setTestingMic] = useState(false)
+  const [cameraStream, setCameraStream] = useState(null)
+  const [micStream, setMicStream] = useState(null)
+  const [audioLevel, setAudioLevel] = useState(0)
+  const videoRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const analyserRef = useRef(null)
+  const animationRef = useRef(null)
+  
+  // Update form when user changes
+  useEffect(() => {
+    if (user) {
+      setProfileForm({
+        name: user.name || '',
+        email: user.email || '',
+        collegeName: user.college_name || user.collegeName || '',
+        departmentName: user.department_name || user.departmentName || '',
+      })
+    }
+  }, [user])
+  
+  // Cleanup streams on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop())
+      }
+      if (micStream) {
+        micStream.getTracks().forEach(track => track.stop())
+      }
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close()
+      }
+    }
+  }, [])
+  
+  // Handle profile update
+  const handleProfileSave = async () => {
+    setProfileLoading(true)
+    setProfileMessage({ type: '', text: '' })
+    
+    try {
+      const result = await authAPI.updateProfile(
+        profileForm.name,
+        profileForm.collegeName,
+        profileForm.departmentName
+      )
+      
+      // Update local storage
+      const userData = JSON.parse(localStorage.getItem('user') || '{}')
+      userData.name = profileForm.name
+      userData.collegeName = profileForm.collegeName
+      userData.departmentName = profileForm.departmentName
+      localStorage.setItem('user', JSON.stringify(userData))
+      
+      // Notify parent component
+      if (onUserUpdate) {
+        onUserUpdate(userData)
+      }
+      
+      setProfileMessage({ type: 'success', text: 'Profile updated successfully!' })
+    } catch (error) {
+      setProfileMessage({ type: 'error', text: error.message || 'Failed to update profile' })
+    } finally {
+      setProfileLoading(false)
+    }
+  }
+  
+  // Handle password update
+  const handlePasswordUpdate = async () => {
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordMessage({ type: 'error', text: 'New passwords do not match' })
+      return
+    }
+    
+    if (passwordForm.newPassword.length < 6) {
+      setPasswordMessage({ type: 'error', text: 'Password must be at least 6 characters' })
+      return
+    }
+    
+    setPasswordLoading(true)
+    setPasswordMessage({ type: '', text: '' })
+    
+    try {
+      await authAPI.updatePassword(passwordForm.currentPassword, passwordForm.newPassword)
+      setPasswordMessage({ type: 'success', text: 'Password updated successfully!' })
+      setTimeout(() => {
+        setShowPasswordModal(false)
+        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+        setPasswordMessage({ type: '', text: '' })
+      }, 1500)
+    } catch (error) {
+      setPasswordMessage({ type: 'error', text: error.message || 'Failed to update password' })
+    } finally {
+      setPasswordLoading(false)
+    }
+  }
+  
+  // Camera test
+  const toggleCameraTest = async () => {
+    if (testingCamera) {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop())
+        setCameraStream(null)
+      }
+      setTestingCamera(false)
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+        setCameraStream(stream)
+        setTestingCamera(true)
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+        }
+      } catch (error) {
+        console.error('Camera access denied:', error)
+        alert('Unable to access camera. Please check permissions.')
+      }
+    }
+  }
+  
+  // Mic test with audio level visualization
+  const toggleMicTest = async () => {
+    if (testingMic) {
+      if (micStream) {
+        micStream.getTracks().forEach(track => track.stop())
+        setMicStream(null)
+      }
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close()
+        audioContextRef.current = null
+      }
+      setTestingMic(false)
+      setAudioLevel(0)
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        setMicStream(stream)
+        setTestingMic(true)
+        
+        // Set up audio analysis
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)()
+        analyserRef.current = audioContextRef.current.createAnalyser()
+        const source = audioContextRef.current.createMediaStreamSource(stream)
+        source.connect(analyserRef.current)
+        analyserRef.current.fftSize = 256
+        
+        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+        
+        const updateLevel = () => {
+          if (!analyserRef.current) return
+          analyserRef.current.getByteFrequencyData(dataArray)
+          const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+          setAudioLevel(Math.min(100, average * 1.5))
+          animationRef.current = requestAnimationFrame(updateLevel)
+        }
+        updateLevel()
+      } catch (error) {
+        console.error('Mic access denied:', error)
+        alert('Unable to access microphone. Please check permissions.')
+      }
+    }
+  }
 
   if (!isOpen) return null
 
@@ -106,7 +305,8 @@ function SettingsPanel({ isOpen, onClose, user, onLogout }) {
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
                         type="text"
-                        defaultValue={user?.name || ''}
+                        value={profileForm.name}
+                        onChange={(e) => setProfileForm(prev => ({ ...prev, name: e.target.value }))}
                         className="w-full pl-10 pr-10 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
                       />
                       <Edit3 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -120,7 +320,37 @@ function SettingsPanel({ isOpen, onClose, user, onLogout }) {
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                       type="email"
-                      defaultValue={user?.email || ''}
+                      value={profileForm.email}
+                      disabled
+                      className="w-full pl-10 pr-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-500 dark:text-gray-400 text-sm cursor-not-allowed"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">Email cannot be changed</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">College / Institution</label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={profileForm.collegeName}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, collegeName: e.target.value }))}
+                      placeholder="Enter your college name"
+                      className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Department</label>
+                  <div className="relative">
+                    <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={profileForm.departmentName}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, departmentName: e.target.value }))}
+                      placeholder="Enter your department"
                       className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
                     />
                   </div>
@@ -128,14 +358,105 @@ function SettingsPanel({ isOpen, onClose, user, onLogout }) {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Role</label>
-                  <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-600 dark:text-gray-300 text-sm capitalize">
+                  <div className="px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-500 dark:text-gray-400 text-sm capitalize">
                     {user?.role || 'student'}
                   </div>
                 </div>
 
-                <button className="w-full py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-medium text-sm transition-colors">
-                  Save Changes
+                {profileMessage.text && (
+                  <div className={`flex items-center gap-2 p-3 rounded-xl text-sm ${
+                    profileMessage.type === 'success' 
+                      ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' 
+                      : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                  }`}>
+                    {profileMessage.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                    {profileMessage.text}
+                  </div>
+                )}
+
+                <button 
+                  onClick={handleProfileSave}
+                  disabled={profileLoading}
+                  className="w-full py-2.5 bg-primary-600 hover:bg-primary-700 disabled:bg-primary-400 text-white rounded-xl font-medium text-sm transition-colors flex items-center justify-center gap-2"
+                >
+                  {profileLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
                 </button>
+              </div>
+
+              {/* Camera & Mic Test Section */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Camera & Microphone Test</h3>
+                
+                <div className="space-y-4">
+                  {/* Camera Test */}
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Video className="w-4 h-4 text-gray-500" />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Camera</span>
+                      </div>
+                      <button
+                        onClick={toggleCameraTest}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          testingCamera 
+                            ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' 
+                            : 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                        }`}
+                      >
+                        {testingCamera ? 'Stop Test' : 'Test Camera'}
+                      </button>
+                    </div>
+                    {testingCamera && (
+                      <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
+                        <video 
+                          ref={videoRef} 
+                          autoPlay 
+                          playsInline 
+                          muted
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Mic Test */}
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Mic className="w-4 h-4 text-gray-500" />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Microphone</span>
+                      </div>
+                      <button
+                        onClick={toggleMicTest}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          testingMic 
+                            ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' 
+                            : 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400'
+                        }`}
+                      >
+                        {testingMic ? 'Stop Test' : 'Test Microphone'}
+                      </button>
+                    </div>
+                    {testingMic && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Speak into your microphone...</p>
+                        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-green-400 to-green-600 transition-all duration-75"
+                            style={{ width: `${audioLevel}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -233,8 +554,17 @@ function SettingsPanel({ isOpen, onClose, user, onLogout }) {
           {/* Privacy Tab */}
           {activeTab === 'privacy' && (
             <div className="space-y-4 animate-fade-in">
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <div className="text-left">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">Change Password</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Update your account password</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              </button>
               {[
-                { label: 'Change Password', desc: 'Update your account password' },
                 { label: 'Two-Factor Authentication', desc: 'Add an extra layer of security' },
                 { label: 'Login Activity', desc: 'View recent login sessions' },
                 { label: 'Data & Privacy', desc: 'Manage your data preferences' },
@@ -289,6 +619,135 @@ function SettingsPanel({ isOpen, onClose, user, onLogout }) {
           </button>
         </div>
       </div>
+
+      {/* Password Change Modal */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => {
+              setShowPasswordModal(false)
+              setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+              setPasswordMessage({ type: '', text: '' })
+            }}
+          />
+          <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-scale-in">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Change Password</h3>
+              <button
+                onClick={() => {
+                  setShowPasswordModal(false)
+                  setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+                  setPasswordMessage({ type: '', text: '' })
+                }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Current Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type={showPasswords.current ? 'text' : 'password'}
+                    value={passwordForm.currentPassword}
+                    onChange={(e) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                    className="w-full pl-10 pr-10 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswords(prev => ({ ...prev, current: !prev.current }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                  >
+                    {showPasswords.current ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">New Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type={showPasswords.new ? 'text' : 'password'}
+                    value={passwordForm.newPassword}
+                    onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
+                    className="w-full pl-10 pr-10 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswords(prev => ({ ...prev, new: !prev.new }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                  >
+                    {showPasswords.new ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Confirm New Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type={showPasswords.confirm ? 'text' : 'password'}
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                    className="w-full pl-10 pr-10 py-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswords(prev => ({ ...prev, confirm: !prev.confirm }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                  >
+                    {showPasswords.confirm ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
+                  </button>
+                </div>
+              </div>
+
+              {passwordMessage.text && (
+                <div className={`flex items-center gap-2 p-3 rounded-xl text-sm ${
+                  passwordMessage.type === 'success' 
+                    ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' 
+                    : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                }`}>
+                  {passwordMessage.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                  {passwordMessage.text}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    setShowPasswordModal(false)
+                    setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+                    setPasswordMessage({ type: '', text: '' })
+                  }}
+                  className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-medium text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handlePasswordUpdate}
+                  disabled={passwordLoading || !passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword}
+                  className="flex-1 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:bg-primary-400 text-white rounded-xl font-medium text-sm transition-colors flex items-center justify-center gap-2"
+                >
+                  {passwordLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    'Update Password'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

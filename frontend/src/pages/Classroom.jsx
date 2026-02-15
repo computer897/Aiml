@@ -1119,15 +1119,35 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Toggle video track ──
+  // ── Toggle video track (Dual-track approach) ──
+  // For students with consent: Video track stays enabled for attendance tracking
+  // Only the WebRTC sending and local preview are affected by videoOn state
   useEffect(() => {
     const stream = localStreamRef.current
     if (!stream) return
     const vt = stream.getVideoTracks()
-    if (vt.length > 0) {
+    if (vt.length === 0) return
+    
+    // If student with consent, keep video track enabled for attendance but hide preview
+    // The video track stays active for face detection, only the WebRTC/display is affected
+    if (user?.role === 'student' && consentGiven) {
+      // Keep track enabled for attendance, but WebRTC mute still works
+      vt.forEach(t => { t.enabled = true })
+      
+      // Update local video display (CSS hide when video is "off")
+      if (localVideoRef.current) {
+        localVideoRef.current.style.visibility = videoOn ? 'visible' : 'hidden'
+      }
+      
+      // Tell WebRTC to mute/unmute video for peers
+      if (webrtcRef.current && typeof webrtcRef.current.setVideoEnabled === 'function') {
+        webrtcRef.current.setVideoEnabled(videoOn)
+      }
+    } else {
+      // Teachers or students without consent: normal track enable/disable
       vt.forEach(t => { t.enabled = videoOn })
     }
-  }, [videoOn])
+  }, [videoOn, user?.role, consentGiven])
 
   // ── Toggle audio track ──
   useEffect(() => {
@@ -1138,21 +1158,6 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
       at.forEach(t => { t.enabled = micOn })
     }
   }, [micOn])
-
-  // ── Dual-Track Camera Logic ──
-  // Track A: WebRTC video (controlled by videoOn state) - handled by toggle above
-  // Track B: Attendance video (stays active for face tracking even when WebRTC video is off)
-  useEffect(() => {
-    if (user?.role !== 'student' || !consentGiven || !faceTrackerRef.current) return
-    
-    // Face tracking continues regardless of WebRTC video state
-    // When camera is "off" for peers, attendance tracking still runs locally
-    // This is transparent to the student through the UI indicator
-    
-    // Note: The video track for attendance is never stopped, only WebRTC sending is affected
-    // This ensures continuous attendance tracking with user consent
-    
-  }, [videoOn, user?.role, consentGiven])
 
   // ── Teacher engagement WebSocket ──
   useEffect(() => {
@@ -1425,7 +1430,13 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
                 <button
                   onClick={() => setVideoOn(v => !v)}
                   className={`p-3 sm:p-4 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
-                  title={videoOn ? 'Turn off camera' : 'Turn on camera'}
+                  title={
+                    videoOn 
+                      ? 'Turn off camera' 
+                      : (user?.role === 'student' && consentGiven && faceTrackingActive 
+                          ? 'Turn on camera (Attendance tracking continues in background)' 
+                          : 'Turn on camera')
+                  }
                 >
                   {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
                 </button>

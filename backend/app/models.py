@@ -226,3 +226,86 @@ class AttendanceReport(BaseModel):
     present_count: int
     absent_count: int
     attendance_records: List[dict]
+
+
+class JoinRequestStatus(str, Enum):
+    """Join request status enumeration."""
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class JoinRequest(BaseModel):
+    """Join request model for Google Meet style class joining."""
+    id: Optional[str] = Field(None, alias="_id")
+    class_id: str
+    student_id: str
+    student_name: str
+    student_email: str
+    status: JoinRequestStatus = Field(default=JoinRequestStatus.PENDING)
+    requested_at: datetime = Field(default_factory=datetime.utcnow)
+    responded_at: Optional[datetime] = None
+    responded_by: Optional[str] = None
+    
+    class Config:
+        populate_by_name = True
+
+
+class JoinRequestCreate(BaseModel):
+    """Schema for creating a join request."""
+    class_id: str
+
+
+class JoinRequestResponse(BaseModel):
+    """Public join request response."""
+    id: str
+    class_id: str
+    student_id: str
+    student_name: str
+    student_email: str
+    status: JoinRequestStatus
+    requested_at: datetime
+    responded_at: Optional[datetime] = None
+
+
+class Document(BaseModel):
+    """Document model for class materials."""
+    id: Optional[str] = Field(None, alias="_id")
+    class_id: str
+    teacher_id: str
+    title: str
+    description: Optional[str] = None
+    file_name: str
+    file_type: str
+    file_size: int
+    file_url: str
+    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    download_count: int = Field(default=0)
+    viewed_by: List[str] = Field(default_factory=list)
+    
+    class Config:
+        populate_by_name = True
+
+
+class Announcement(BaseModel):
+    """Announcement model for class announcements."""
+    id: Optional[str] = Field(None, alias="_id")
+    class_id: str
+    teacher_id: str
+    teacher_name: str
+    title: str
+    content: str
+    priority: str = Field(default="normal")  # normal, important, urgent
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    seen_by: List[str] = Field(default_factory=list)
+    
+    class Config:
+        populate_by_name = True
+
+
+class AnnouncementCreate(BaseModel):
+    """Schema for creating an announcement."""
+    class_id: str
+    title: str
+    content: str
+    priority: str = "normal"

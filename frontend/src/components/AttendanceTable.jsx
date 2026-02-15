@@ -1,8 +1,24 @@
-import { Download } from 'lucide-react'
+import { useState } from 'react'
+import { Download, Loader2 } from 'lucide-react'
+import { attendanceAPI } from '../services/api'
 
-function AttendanceTable({ attendanceData }) {
-  const handleDownload = () => {
-    alert('Downloading attendance report as Excel...')
+function AttendanceTable({ attendanceData, classId, sessionId }) {
+  const [downloading, setDownloading] = useState(false)
+  
+  const handleDownload = async () => {
+    if (!classId || !sessionId) {
+      alert('Cannot download: Missing class or session information')
+      return
+    }
+    
+    setDownloading(true)
+    try {
+      await attendanceAPI.exportCsv(classId, sessionId)
+    } catch (error) {
+      alert(error.message || 'Failed to download attendance report')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const getStatusColor = (status) => {
@@ -32,10 +48,20 @@ function AttendanceTable({ attendanceData }) {
           <h2 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white">Attendance Report</h2>
           <button
             onClick={handleDownload}
-            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all text-xs sm:text-sm font-medium"
+            disabled={downloading}
+            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:bg-primary-400 transition-all text-xs sm:text-sm font-medium"
           >
-            <Download className="w-4 h-4" />
-            <span>Download Excel</span>
+            {downloading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Downloading...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" />
+                <span>Download CSV</span>
+              </>
+            )}
           </button>
         </div>
       </div>
