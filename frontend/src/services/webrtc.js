@@ -61,25 +61,28 @@ export function createWebRTCManager() {
 
   // Callbacks (set by component)
   const callbacks = {
-    onRemoteStream: null,       // (socketId, stream, userInfo) => {}
-    onRemoteStreamRemoved: null, // (socketId) => {}
-    onParticipantsUpdated: null, // (participants) => {}
-    onConnectionStateChange: null, // (state) => {}
-    onTeacherLeft: null,         // () => {}
-    onWaitingForTeacher: null,   // () => {}
-    onChatMessage: null,         // (message) => {}
-    onScreenShare: null,         // (socketId, stream, userInfo) => {}
-    onScreenShareStopped: null,  // (socketId) => {}
-    onHandRaised: null,          // ({ socketId, userId, userName, question, time }) => {}
-    onForceMuted: null,          // () => {}
-    onForceRemoved: null,        // () => {}
+    onRemoteStream: null,           // (socketId, stream, userInfo) => {}
+    onRemoteStreamRemoved: null,    // (socketId) => {}
+    onParticipantsUpdated: null,    // (participants) => {}
+    onConnectionStateChange: null,  // (state) => {}
+    onTeacherLeft: null,            // () => {}
+    onWaitingForTeacher: null,      // () => {}
+    onChatMessage: null,            // (message) => {}
+    onScreenShare: null,            // (socketId, stream, userInfo) => {}
+    onScreenShareStopped: null,     // (socketId) => {}
+    onScreenShareBlocked: null,     // (message) => {} - Student tried to share screen
+    onHandRaised: null,             // ({ socketId, userId, userName, question, time }) => {}
+    onForceMuted: null,             // () => {}
+    onForceRemoved: null,           // () => {}
+    onKicked: null,                 // (data) => {} - Student was kicked via remove-student
+    onStudentEngagement: null,      // (data) => {} - Teacher receives engagement updates
+    onClassEnded: null,             // ({ attendance, endTime }) => {} - Teacher ends class
+    onAttendanceUpdate: null,       // (attendanceMap) => {} - Live join/leave updates to teacher
     // Waiting room callbacks
-    onWaitingForApproval: null,  // () => {} - Student is in waiting room
-    onJoinApproved: null,        // () => {} - Student was approved
-    onJoinRejected: null,        // (message) => {} - Student was rejected
-    onJoinRequest: null,         // ({ socketId, userId, userName, time }) => {} - Teacher receives join request
-  }
-
+    onWaitingForApproval: null,     // () => {} - Student is in waiting room
+    onJoinApproved: null,           // () => {} - Student was approved
+    onJoinRejected: null,           // (message) => {} - Student was rejected
+    onJoinRequest: null,            // ({ socketId, userId, userName, time }) => {} - Teacher receives join request
   function connect() {
     if (destroyed) return
     if (socket?.connected) return
@@ -293,6 +296,36 @@ export function createWebRTCManager() {
       console.log('[WebRTC] Force removed by:', data.byName)
       callbacks.onForceRemoved?.()
     })
+
+    // Kicked via remove-student event (spec-defined event name)
+    socket.on('kicked', (data) => {
+      console.log('[WebRTC] Kicked by teacher:', data.byName)
+      callbacks.onKicked?.(data)
+      callbacks.onForceRemoved?.() // treat the same as force-remove in UI
+    })
+
+    // Screen share blocked (student tried to share)
+    socket.on('screen-share-blocked', (data) => {
+      console.warn('[WebRTC] Screen share blocked:', data.message)
+      callbacks.onScreenShareBlocked?.(data.message)
+    })
+
+    // Teacher receives real-time engagement updates from students via socket.io
+    socket.on('student-engagement', (data) => {
+      console.log('[WebRTC] Engagement update from:', data.studentName, '->', data.status)
+      callbacks.onStudentEngagement?.(data)
+    })
+
+    // Teacher receives live attendance map whenever a student joins/leaves
+    socket.on('attendance-update', (attendanceMap) => {
+      callbacks.onAttendanceUpdate?.(attendanceMap)
+    })
+
+    // Class ended – teacher receives the final attendance report
+    socket.on('class-ended', (data) => {
+      console.log('[WebRTC] Class ended, attendance report received')
+      callbacks.onClassEnded?.(data)
+    })
   }
 
   function createPeerConnection(socketId, initiator = false, userInfo = {}) {
@@ -482,6 +515,67 @@ export function createWebRTCManager() {
     console.log(`[WebRTC] Removed user ${targetSocketId}`)
   }
 
+  /**
+   * Teacher: End the class. Server finalises attendance and sends 'class-ended' back.
+   */
+  function endClass() {
+    if (!socket || !roomId || role !== 'teacher') return
+    socket.emit('end-class')
+    console.log('[WebRTC] End-class emitted')
+  }
+
+  /**
+   * Enable or disable the video track sent to all peers WITHOUT stopping the
+   * local track (needed for attendance face-tracking that runs in the background).
+   * Uses replaceTrack: sends a silent/black track when disabled, real track when enabled.
+   */
+  async function setVideoEnabled(enabled) {
+    if (!localStream) return
+    const videoTrack = localStream.getVideoTracks()[0]
+    if (!videoTrack) return
+
+    if (enabled) {
+      // Re-enable the real video track for all senders
+      videoTrack.enabled = true
+      for (const pc of Object.values(peers)) {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video' || (s.track === null && s._kind === 'video'))
+        if (sender && sender.track !== videoTrack) {
+          try { await sender.replaceTrack(videoTrack) } catch (e) {
+            console.error('[WebRTC] setVideoEnabled(true) replaceTrack error:', e)
+          }
+        }
+      }
+    } else {
+      // Disable track so peers receive black video (no replaceTrack needed — track.enabled=false works).
+      // For the dual-track attendance use-case the track stays enabled at the stream level;
+      // this helper is called from Classroom.jsx which handles that separately.
+      videoTrack.enabled = false
+    }
+  }
+
+  /**
+   * Student sends engagement status to server via socket.io.
+   * Server forwards it to the room's teacher as 'student-engagement'.
+   * @param {string} studentId
+   * @param {'attentive'|'not-detected'|'distracted'} status
+   * @param {string} studentName
+   * @param {boolean} cameraOn
+   */
+  function sendEngagementUpdate(studentId, status, studentName, cameraOn) {
+    if (!socket || !roomId) return
+    socket.emit('engagement-update', { studentId, status, studentName, cameraOn })
+  }
+
+  /**
+   * Teacher: Remove a student using the spec-defined 'remove-student' event.
+   * The server will emit 'kicked' to the student.
+   */
+  function kickStudent(targetSocketId) {
+    if (!socket || !roomId || role !== 'teacher') return
+    socket.emit('remove-student', { studentId: targetSocketId })
+    console.log(`[WebRTC] Kicked student ${targetSocketId}`)
+  }
+
   function updateLocalStream(newStream) {
     localStream = newStream
     Object.values(peers).forEach(pc => {
@@ -628,6 +722,8 @@ export function createWebRTCManager() {
     raiseHand,
     startScreenShare,
     stopScreenShare,
+    setVideoEnabled,
+    sendEngagementUpdate,
     isConnected,
     getSocketId,
     // Teacher controls
@@ -635,5 +731,7 @@ export function createWebRTCManager() {
     rejectStudent,
     muteUser,
     removeUser,
+    kickStudent,
+    endClass,
   }
 }

@@ -12,6 +12,7 @@ import EngagementList from '../components/EngagementList'
 import ChatPanel from '../components/ChatPanel'
 import DoubtsPanel from '../components/DoubtsPanel'
 import ConsentModal from '../components/ConsentModal'
+import AttendanceReportModal from '../components/AttendanceReportModal'
 
 // ─── Permission Dialog (Google Meet Style) ─────────────────────────────────
 function PermissionDialog({ onAllow, onDeny }) {
@@ -193,9 +194,16 @@ function PreJoinScreen({ classData, user, onJoin, onLeave }) {
                 <button onClick={() => setMicOn(v => !v)} className={`p-3 rounded-full transition ${micOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}>
                   {micOn ? <Mic className="w-5 h-5 text-white" /> : <MicOff className="w-5 h-5 text-white" />}
                 </button>
-                <button onClick={() => setVideoOn(v => !v)} className={`p-3 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}>
-                  {videoOn ? <Video className="w-5 h-5 text-white" /> : <VideoOff className="w-5 h-5 text-white" />}
-                </button>
+                {/* Camera toggle is disabled for students — their camera must stay ON */}
+                {user?.role === 'teacher' ? (
+                  <button onClick={() => setVideoOn(v => !v)} className={`p-3 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}>
+                    {videoOn ? <Video className="w-5 h-5 text-white" /> : <VideoOff className="w-5 h-5 text-white" />}
+                  </button>
+                ) : (
+                  <button disabled title="Camera must stay ON for students" className="p-3 rounded-full bg-gray-600 opacity-50 cursor-not-allowed">
+                    <Video className="w-5 h-5 text-white" />
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -399,60 +407,60 @@ function JoinRequestModal({ requests, onAccept, onReject, onAcceptAll, onRejectA
   if (!requests || requests.length === 0) return null
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gradient-to-b from-gray-800 to-gray-900 border border-gray-700/50 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-in">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-gradient-to-b from-gray-800 to-gray-900 border border-gray-700/50 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md flex flex-col max-h-[70dvh] sm:max-h-[85dvh] animate-scale-in">
         {/* Header */}
-        <div className="bg-gradient-to-r from-primary-600/20 to-purple-600/20 px-6 py-5 border-b border-gray-700/50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary-600/20 rounded-full flex items-center justify-center">
-                <Users className="w-5 h-5 text-primary-400" />
-              </div>
-              <div>
-                <h2 className="text-white font-semibold text-lg">Waiting Room</h2>
-                <p className="text-gray-400 text-sm">{requests.length} {requests.length === 1 ? 'person' : 'people'} waiting to join</p>
-              </div>
+        <div className="bg-gradient-to-r from-primary-600/20 to-purple-600/20 px-4 py-3 border-b border-gray-700/50 flex-shrink-0">
+          {/* Drag handle (mobile) */}
+          <div className="w-8 h-1 bg-gray-600 rounded-full mx-auto mb-2 sm:hidden" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-primary-600/20 rounded-full flex items-center justify-center flex-shrink-0">
+              <Users className="w-4 h-4 text-primary-400" />
+            </div>
+            <div>
+              <h2 className="text-white font-semibold text-base leading-tight">Waiting Room</h2>
+              <p className="text-gray-400 text-xs">{requests.length} {requests.length === 1 ? 'person' : 'people'} waiting</p>
             </div>
           </div>
         </div>
 
-        {/* Participant List */}
-        <div className="max-h-80 overflow-y-auto">
+        {/* Participant List — scrolls independently so footer always visible */}
+        <div className="flex-1 overflow-y-auto">
           {requests.map((req, index) => (
-            <div 
-              key={req.socketId} 
-              className={`px-6 py-4 flex items-center gap-4 hover:bg-gray-700/30 transition-colors ${index !== requests.length - 1 ? 'border-b border-gray-700/30' : ''}`}
+            <div
+              key={req.socketId}
+              className={`px-4 py-2.5 flex items-center gap-3 hover:bg-gray-700/30 transition-colors ${index !== requests.length - 1 ? 'border-b border-gray-700/30' : ''}`}
             >
               {/* Avatar */}
-              <div className="relative">
-                <div className="w-12 h-12 bg-gradient-to-br from-primary-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
-                  <span className="text-white text-base font-bold">
+              <div className="relative flex-shrink-0">
+                <div className="w-9 h-9 bg-gradient-to-br from-primary-500 to-purple-600 rounded-full flex items-center justify-center shadow-md">
+                  <span className="text-white text-sm font-bold">
                     {(req.userName || '?').split(' ').map(n => n[0]).join('').toUpperCase()}
                   </span>
                 </div>
-                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-yellow-500 rounded-full border-2 border-gray-800 flex items-center justify-center">
-                  <Clock className="w-2.5 h-2.5 text-gray-900" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-yellow-500 rounded-full border-2 border-gray-800 flex items-center justify-center">
+                  <Clock className="w-2 h-2 text-gray-900" />
                 </div>
               </div>
 
-              {/* Name & Info */}
+              {/* Name */}
               <div className="flex-1 min-w-0">
-                <p className="text-white font-medium truncate">{req.userName || 'Student'}</p>
-                <p className="text-gray-500 text-sm">Requesting to join</p>
+                <p className="text-white font-medium text-sm truncate">{req.userName || 'Student'}</p>
+                <p className="text-gray-500 text-xs">Requesting to join</p>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-shrink-0">
                 <button
                   onClick={() => onReject(req.socketId)}
-                  className="p-2.5 rounded-full bg-gray-700 hover:bg-red-600/80 text-gray-400 hover:text-white transition-all duration-200 group"
+                  className="p-2 rounded-full bg-gray-700 hover:bg-red-600/80 text-gray-400 hover:text-white transition-all duration-200"
                   title="Deny"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => onAccept(req.socketId)}
-                  className="px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-full text-sm font-medium transition-all duration-200 shadow-lg shadow-primary-600/25 hover:shadow-primary-500/40"
+                  className="px-3 py-1.5 bg-primary-600 hover:bg-primary-500 text-white rounded-full text-xs font-semibold transition-all duration-200 shadow-md"
                 >
                   Admit
                 </button>
@@ -463,16 +471,16 @@ function JoinRequestModal({ requests, onAccept, onReject, onAcceptAll, onRejectA
 
         {/* Footer Actions */}
         {requests.length > 1 && (
-          <div className="px-6 py-4 bg-gray-800/50 border-t border-gray-700/50 flex items-center justify-between gap-3">
+          <div className="px-4 py-3 bg-gray-800/50 border-t border-gray-700/50 flex items-center gap-2 flex-shrink-0">
             <button
               onClick={() => requests.forEach(r => onReject(r.socketId))}
-              className="flex-1 px-4 py-2.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-xl text-sm font-medium transition-all duration-200"
+              className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-xl text-xs font-medium transition-all duration-200"
             >
               Deny all
             </button>
             <button
               onClick={() => requests.forEach(r => onAccept(r.socketId))}
-              className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-lg shadow-primary-600/25"
+              className="flex-1 px-3 py-2 bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 text-white rounded-xl text-xs font-medium transition-all duration-200 shadow-md"
             >
               Admit all
             </button>
@@ -816,6 +824,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
   const [micOn, setMicOn] = useState(initialSettings?.micOn ?? false)
   const [videoOn, setVideoOn] = useState(initialSettings?.videoOn ?? false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [screenShareBlockedMsg, setScreenShareBlockedMsg] = useState('')
   const [showChat, setShowChat] = useState(false)
   const [showEngagement, setShowEngagement] = useState(false)
   const [showDoubts, setShowDoubts] = useState(false)
@@ -828,6 +837,10 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
   const [teacherLeft, setTeacherLeft] = useState(false)
   const [forceMuteNotice, setForceMuteNotice] = useState(false)
   const [removedFromRoom, setRemovedFromRoom] = useState(false)
+
+  // Attendance report (shown after teacher ends class)
+  const [attendanceReport, setAttendanceReport] = useState(null)
+  const [showAttendanceReport, setShowAttendanceReport] = useState(false)
 
   // Face detection state (privacy-focused, browser-side only)
   const [faceTrackingActive, setFaceTrackingActive] = useState(false)
@@ -929,13 +942,15 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
             parts.students.forEach(p => {
               const existingIdx = updated.findIndex(s => s.id === p.userId)
               if (existingIdx < 0 && p.userId) {
-                // Add new student with default engagement values
+                // Add new student with default engagement values + joinTime
                 updated.push({
                   id: p.userId,
+                  socketId: p.socketId,
                   name: p.userName || 'Student',
                   engagement: 0,
                   status: 'active',
                   lookingAtScreen: false,
+                  joinTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 })
               }
             })
@@ -944,7 +959,6 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
             return updated.filter(s => participantIds.includes(s.id))
           })
         } else {
-          // No students in room, clear engagement list
           setStudents([])
         }
       }
@@ -983,6 +997,68 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
       // Teacher removed this student from the room
       rtc.callbacks.onForceRemoved = () => {
         setRemovedFromRoom(true)
+      }
+
+      // Kicked via spec-defined remove-student / kicked event
+      rtc.callbacks.onKicked = () => {
+        setRemovedFromRoom(true)
+      }
+
+      // Screen share blocked — student attempted screen share
+      rtc.callbacks.onScreenShareBlocked = (message) => {
+        setScreenShareBlockedMsg(message || 'Only teacher can share the screen')
+        setTimeout(() => setScreenShareBlockedMsg(''), 4000)
+      }
+
+      // Teacher receives real-time engagement via socket.io (supplements WebSocket backend path)
+      rtc.callbacks.onStudentEngagement = (data) => {
+        if (user?.role !== 'teacher') return
+        setStudents(prev => {
+          const idx = prev.findIndex(s => s.id === data.studentId)
+          const entry = {
+            id: data.studentId || data.socketId,
+            socketId: data.socketId,
+            name: data.studentName || 'Student',
+            engagement: data.status === 'attentive' ? 100 : (data.status === 'distracted' ? 40 : 0),
+            status: data.status === 'attentive' ? 'active' : (data.status === 'distracted' ? 'distracted' : 'inactive'),
+            lookingAtScreen: data.status === 'attentive',
+            cameraOn: data.cameraOn !== false,
+            // Preserve existing joinTime or use server-provided one
+            joinTime: data.joinTimeLabel || data.joinTime || null,
+          }
+          if (idx >= 0) {
+            const updated = [...prev]
+            updated[idx] = { ...updated[idx], ...entry, joinTime: updated[idx].joinTime || entry.joinTime }
+            return updated
+          }
+          return [...prev, entry]
+        })
+      }
+
+      // Teacher receives live attendance map updates (join/leave)
+      rtc.callbacks.onAttendanceUpdate = (attendanceMap) => {
+        if (user?.role !== 'teacher') return
+        // Merge join times / leave times into student state
+        const entries = Object.values(attendanceMap)
+        setStudents(prev => {
+          const updated = [...prev]
+          entries.forEach(entry => {
+            const idx = updated.findIndex(s => s.socketId === entry.socketId || s.id === entry.userId)
+            const joinLabel = entry.joinTime
+              ? new Date(entry.joinTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : null
+            if (idx >= 0) {
+              updated[idx] = { ...updated[idx], joinTime: updated[idx].joinTime || joinLabel }
+            }
+          })
+          return updated
+        })
+      }
+
+      // Class ended – show attendance report to teacher
+      rtc.callbacks.onClassEnded = (data) => {
+        setAttendanceReport(data)
+        setShowAttendanceReport(true)
       }
 
       // ── Waiting Room Callbacks ──
@@ -1041,6 +1117,19 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
                 
                 // Update local state for UI feedback
                 setLastDetection(detection)
+
+                // Send real-time engagement status to teacher via socket.io
+                if (webrtcRef.current) {
+                  const engagementStatus = detection.faceDetected
+                    ? (detection.multipleFaces ? 'distracted' : 'attentive')
+                    : 'not-detected'
+                  webrtcRef.current.sendEngagementUpdate(
+                    user?.id || user?._id,
+                    engagementStatus,
+                    user?.name,
+                    true // camera is always on for students
+                  )
+                }
                 
                 // Send only metadata to backend
                 try {
@@ -1119,35 +1208,35 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Toggle video track (Dual-track approach) ──
-  // For students with consent: Video track stays enabled for attendance tracking
-  // Only the WebRTC sending and local preview are affected by videoOn state
+  // ── Toggle video track ──
+  // Students: camera MUST always stay ON — enforce videoOn=true and keep track enabled.
+  // Teachers: full control via track.enabled and setVideoEnabled.
   useEffect(() => {
     const stream = localStreamRef.current
     if (!stream) return
     const vt = stream.getVideoTracks()
     if (vt.length === 0) return
-    
-    // If student with consent, keep video track enabled for attendance but hide preview
-    // The video track stays active for face detection, only the WebRTC/display is affected
-    if (user?.role === 'student' && consentGiven) {
-      // Keep track enabled for attendance, but WebRTC mute still works
+
+    if (user?.role === 'student') {
+      // Students cannot turn off camera — force-enable regardless of toggle state
       vt.forEach(t => { t.enabled = true })
-      
-      // Update local video display (CSS hide when video is "off")
-      if (localVideoRef.current) {
-        localVideoRef.current.style.visibility = videoOn ? 'visible' : 'hidden'
+      if (!videoOn) {
+        // Silently correct back to on; do not allow off state
+        setVideoOn(true)
       }
-      
-      // Tell WebRTC to mute/unmute video for peers
-      if (webrtcRef.current && typeof webrtcRef.current.setVideoEnabled === 'function') {
-        webrtcRef.current.setVideoEnabled(videoOn)
+      // For attendance dual-track: keep attendance video visible
+      if (attendanceVideoRef.current) {
+        attendanceVideoRef.current.style.visibility = 'visible'
       }
     } else {
-      // Teachers or students without consent: normal track enable/disable
+      // Teachers: normal toggle — disabling track sends black video to all peers
       vt.forEach(t => { t.enabled = videoOn })
+      // Also update senders in all peer connections via setVideoEnabled
+      if (webrtcRef.current && typeof webrtcRef.current.setVideoEnabled === 'function') {
+        webrtcRef.current.setVideoEnabled(videoOn).catch(() => {})
+      }
     }
-  }, [videoOn, user?.role, consentGiven])
+  }, [videoOn, user?.role])
 
   // ── Toggle audio track ──
   useEffect(() => {
@@ -1199,8 +1288,21 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
   // ── Handlers ──
   const handleLeaveClass = async () => {
     if (!window.confirm('Leave the classroom?')) return
-    
-    // Stop face tracking
+    await _doLeaveClass()
+  }
+
+  const handleEndClass = async () => {
+    if (user?.role !== 'teacher') return
+    if (!window.confirm('End the class for everyone? This will finalize attendance.')) return
+    // Emit end-class – server will send back class-ended with the attendance report
+    if (webrtcRef.current && typeof webrtcRef.current.endClass === 'function') {
+      webrtcRef.current.endClass()
+    }
+    // Deactivate class on the backend API
+    try { await classAPI.deactivate(classData.class_id) } catch { /* ok */ }
+  }
+
+  const _doLeaveClass = async () => {
     if (faceTrackerRef.current) {
       faceTrackerRef.current.stop()
       setFaceTrackingActive(false)
@@ -1215,6 +1317,10 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
     }
     onLeave()
   }
+
+  // Make leave callable from _doLeaveClass (previously inlined)
+  // eslint-disable-next-line no-unused-vars
+  const _handleLeaveInner = _doLeaveClass
 
   const handleSendMessage = (text) => {
     if (webrtcRef.current) {
@@ -1238,7 +1344,9 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
   const handleRemoveUser = (targetSocketId) => {
     if (!window.confirm('Remove this student from the meeting?')) return
     if (webrtcRef.current) {
+      // Use both paths: legacy remove-user AND spec-defined remove-student (emits "kicked")
       webrtcRef.current.removeUser(targetSocketId)
+      webrtcRef.current.kickStudent(targetSocketId)
     }
   }
 
@@ -1260,6 +1368,12 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
   }
 
   const handleScreenShare = async () => {
+    // Only teachers are allowed to share screen
+    if (user?.role !== 'teacher') {
+      setScreenShareBlockedMsg('Only teacher can share the screen')
+      setTimeout(() => setScreenShareBlockedMsg(''), 4000)
+      return
+    }
     if (!webrtcRef.current) return
     if (isScreenSharing) {
       webrtcRef.current.stopScreenShare()
@@ -1298,6 +1412,19 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
       {/* Removed from room overlay */}
       {removedFromRoom && <RemovedBanner onLeave={onLeave} />}
 
+      {/* Attendance Report Modal (teacher sees this after ending class) */}
+      {showAttendanceReport && user?.role === 'teacher' && (
+        <AttendanceReportModal
+          report={attendanceReport?.attendance || []}
+          endTime={attendanceReport?.endTime}
+          classTitle={classData?.title}
+          onClose={() => {
+            setShowAttendanceReport(false)
+            onLeave()
+          }}
+        />
+      )}
+
       {/* Teacher: Join Request Modal for waiting students */}
       {user?.role === 'teacher' && (
         <JoinRequestModal
@@ -1312,6 +1439,14 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2.5 bg-gray-800 border border-gray-600 rounded-lg shadow-lg flex items-center gap-2">
           <MicOff className="w-4 h-4 text-red-400" />
           <p className="text-white text-sm">You were muted by the host</p>
+        </div>
+      )}
+
+      {/* Screen share blocked toast */}
+      {screenShareBlockedMsg && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2.5 bg-orange-900 border border-orange-600 rounded-lg shadow-lg flex items-center gap-2">
+          <MonitorUp className="w-4 h-4 text-orange-400" />
+          <p className="text-white text-sm">{screenShareBlockedMsg}</p>
         </div>
       )}
 
@@ -1426,20 +1561,24 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
                   {micOn ? <Mic className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <MicOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
                 </button>
 
-                {/* Video */}
-                <button
-                  onClick={() => setVideoOn(v => !v)}
-                  className={`p-3 sm:p-4 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
-                  title={
-                    videoOn 
-                      ? 'Turn off camera' 
-                      : (user?.role === 'student' && consentGiven && faceTrackingActive 
-                          ? 'Turn on camera (Attendance tracking continues in background)' 
-                          : 'Turn on camera')
-                  }
-                >
-                  {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
-                </button>
+                {/* Video — teachers can toggle; students camera is always ON */}
+                {user?.role === 'teacher' ? (
+                  <button
+                    onClick={() => setVideoOn(v => !v)}
+                    className={`p-3 sm:p-4 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
+                    title={videoOn ? 'Turn off camera' : 'Turn on camera'}
+                  >
+                    {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    title="Camera must stay ON — required for attendance tracking"
+                    className="p-3 sm:p-4 rounded-full bg-gray-700 opacity-50 cursor-not-allowed"
+                  >
+                    <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                  </button>
+                )}
 
                 {/* Screen share - Teacher only */}
                 {user?.role === 'teacher' && (
@@ -1495,6 +1634,17 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
 
               {/* Right side */}
               <div className="flex items-center gap-2">
+                {/* End Class — teacher only */}
+                {user?.role === 'teacher' && (
+                  <button
+                    onClick={handleEndClass}
+                    className="px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 transition flex items-center gap-1.5 text-xs sm:text-sm font-medium"
+                    title="End class and view attendance report"
+                  >
+                    <X className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+                    <span className="hidden sm:inline text-white">End Class</span>
+                  </button>
+                )}
                 <button
                   onClick={handleLeaveClass}
                   className="p-2.5 sm:p-3 rounded-full bg-red-600 hover:bg-red-700 transition"

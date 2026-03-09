@@ -12,7 +12,6 @@ function SignUp({ setUser }) {
     confirmPassword: '',
     role: 'student'
   })
-  // Note: college_name and department_name removed - using simple class ID join like Google Meet
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')

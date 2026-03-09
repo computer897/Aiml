@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle, Radio, Download, Users, Eye, EyeOff, AlertTriangle } from 'lucide-react'
+import { AlertCircle, CheckCircle, Radio, Download, Users, Eye, EyeOff, AlertTriangle, Video, VideoOff, Clock } from 'lucide-react'
 import { attendanceAPI } from '../services/api'
 
 function EngagementList({ students, onSelectStudent, classId, sessionId }) {
@@ -21,6 +21,13 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
     if (engagement >= 50) return 'text-yellow-400'
     if (engagement > 0) return 'text-red-400'
     return 'text-gray-500'
+  }
+
+  // Map internal status to human-readable engagement label
+  const getEngagementLabel = (student) => {
+    if (student.status === 'active') return 'Attentive'
+    if (student.status === 'distracted') return 'Distracted'
+    return 'Not Detected'
   }
 
   const sortedStudents = [...students].sort((a, b) => {
@@ -170,19 +177,35 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
                   </div>
                   <span className="text-sm font-medium text-white">{student.name}</span>
                 </div>
-                {student.status === 'distracted' && (
-                  <AlertCircle className="w-4 h-4 text-yellow-400" />
-                )}
-                {student.status === 'active' && student.engagement >= 80 && (
-                  <CheckCircle className="w-4 h-4 text-green-400" />
-                )}
+                <div className="flex items-center gap-1.5">
+                  {/* Camera status badge */}
+                  <span title={student.cameraOn === false ? 'Camera OFF' : 'Camera ON'}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${student.cameraOn === false ? 'bg-red-900/40 text-red-400' : 'bg-green-900/40 text-green-400'}`}>
+                    {student.cameraOn === false
+                      ? <><VideoOff className="w-3 h-3" /> OFF</>
+                      : <><Video className="w-3 h-3" /> ON</>}
+                  </span>
+                  {student.status === 'distracted' && (
+                    <AlertCircle className="w-4 h-4 text-yellow-400" />
+                  )}
+                  {student.status === 'active' && student.engagement >= 80 && (
+                    <CheckCircle className="w-4 h-4 text-green-400" />
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center justify-between">
                 <span className={`text-xs font-semibold ${getEngagementColor(student.engagement)}`}>
                   {student.engagement}% engaged
                 </span>
-                <span className="text-xs text-gray-500 capitalize">{student.status}</span>
+                {/* Engagement status: Attentive / Not Detected / Distracted */}
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                  student.status === 'active' ? 'bg-green-900/40 text-green-400'
+                  : student.status === 'distracted' ? 'bg-yellow-900/40 text-yellow-400'
+                  : 'bg-gray-700 text-gray-400'
+                }`}>
+                  {getEngagementLabel(student)}
+                </span>
               </div>
 
               {/* Progress Bar */}
@@ -218,6 +241,14 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
                       Multiple faces
                     </span>
                   )}
+                </div>
+              )}
+
+              {/* Join time */}
+              {student.joinTime && (
+                <div className="mt-1.5 flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-gray-500" />
+                  <span className="text-[10px] text-gray-500">Joined {student.joinTime}</span>
                 </div>
               )}
             </div>
