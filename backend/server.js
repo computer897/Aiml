@@ -439,7 +439,8 @@ io.on("connection", socket => {
   });
 
   // ── Student Engagement Update (socket.io path) ──
-  // Students send engagement status every 3 seconds; server forwards to teacher.
+  // Students send engagement status every 3 seconds; server persists it and
+  // broadcasts the update to all room members (teacher processes it for the dashboard).
   socket.on("engagement-update", data => {
     const { studentId, status, studentName, cameraOn } = data;
     const roomId = socket.roomId;
@@ -454,25 +455,38 @@ io.on("connection", socket => {
     const engLabel = status === 'attentive' ? 'Attentive'
                    : status === 'distracted' ? 'Distracted'
                    : 'Not Present';
-    if (attendanceData[roomId][socket.id]) {
+
+    // Create attendance entry on the fly if the student was added outside accept-student
+    if (!attendanceData[roomId][socket.id]) {
+      attendanceData[roomId][socket.id] = {
+        socketId:        socket.id,
+        userId:          socket.userId || studentId || socket.id,
+        name:            socket.userName || studentName || 'Student',
+        joinTime:        new Date().toISOString(),
+        leaveTime:       null,
+        totalDuration:   null,
+        engagementStatus: engLabel,
+        cameraOn:        cameraOn !== false,
+      };
+    } else {
       attendanceData[roomId][socket.id].engagementStatus = engLabel;
       attendanceData[roomId][socket.id].cameraOn = cameraOn !== false;
     }
 
-    // Forward to teacher with joinTime included
-    if (room.host) {
-      const joinTime = attendanceData[roomId]?.[socket.id]?.joinTime || null;
-      io.to(room.host).emit("student-engagement", {
-        socketId: socket.id,
-        studentId: studentId || socket.userId,
-        studentName: studentName || socket.userName,
-        status,           // "attentive" | "not-detected" | "distracted"
-        cameraOn: cameraOn !== false,
-        joinTime,
-        joinTimeLabel: fmtTime(joinTime),
-        timestamp: new Date().toISOString()
-      });
-    }
+    // Broadcast to everyone in the room except the sender.
+    // Teacher's onStudentEngagement callback updates the dashboard;
+    // other students' frontends ignore this event.
+    const joinTime = attendanceData[roomId]?.[socket.id]?.joinTime || null;
+    socket.to(roomId).emit("student-engagement", {
+      socketId:    socket.id,
+      studentId:   studentId || socket.userId,
+      studentName: studentName || socket.userName,
+      status,           // "attentive" | "not-detected" | "distracted"
+      cameraOn:    cameraOn !== false,
+      joinTime,
+      joinTimeLabel: fmtTime(joinTime),
+      timestamp:   new Date().toISOString()
+    });
     console.log(`[engagement-update] ${socket.userName}: ${status} in room ${roomId}`);
   });
 
