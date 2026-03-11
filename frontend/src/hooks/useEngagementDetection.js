@@ -75,6 +75,8 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
     setEngagementStatus(status)
 
     // Emit to signaling server → forwarded to teacher as 'student-engagement'
+    // cameraOn is always true for students since the physical camera stays on
+    // even when visibility is toggled off
     webrtcRef.current.sendEngagementUpdate(userId, status, userName, true)
   }, [userId, userName, videoRef, webrtcRef])
 

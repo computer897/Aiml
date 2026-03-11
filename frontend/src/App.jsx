@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react'
 import { ThemeProvider } from './context/ThemeContext'
 import Login from './pages/Login'
 import SignUp from './pages/SignUp'
-// import TermsAcceptance from './pages/TermsAcceptance'
 import StudentDashboard from './pages/StudentDashboard'
 import TeacherDashboard from './pages/TeacherDashboard'
 import Classroom from './pages/Classroom'
@@ -16,11 +15,6 @@ function App() {
     const savedUser = localStorage.getItem('user')
     return savedUser ? JSON.parse(savedUser) : null
   })
-  
-  // const [termsAccepted, setTermsAccepted] = useState(() => {
-  //   return localStorage.getItem('terms_accepted') === 'true'
-  // })
-  // const [showTermsDeclined, setShowTermsDeclined] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -33,16 +27,6 @@ function App() {
   const handleLogout = () => {
     setUser(null)
   }
-
-  // const handleTermsAccept = () => {
-  //   setTermsAccepted(true)
-  //   setShowTermsDeclined(false)
-  // }
-  // const handleTermsDecline = () => {
-  //   setShowTermsDeclined(true)
-  // }
-
-  // Terms acceptance logic removed
 
   return (
     <ThemeProvider>

@@ -156,15 +156,9 @@ function PreJoinScreen({ classData, user, onJoin, onLeave }) {
               <button onClick={() => setMicOn(v => !v)} className={`p-3 rounded-full transition ${micOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}>
                 {micOn ? <Mic className="w-5 h-5 text-white" /> : <MicOff className="w-5 h-5 text-white" />}
               </button>
-              {user?.role === 'teacher' ? (
-                <button onClick={() => setVideoOn(v => !v)} className={`p-3 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}>
-                  {videoOn ? <Video className="w-5 h-5 text-white" /> : <VideoOff className="w-5 h-5 text-white" />}
-                </button>
-              ) : (
-                <button disabled title="Camera must stay ON for students" className="p-3 rounded-full bg-gray-600 opacity-50 cursor-not-allowed">
-                  <Video className="w-5 h-5 text-white" />
-                </button>
-              )}
+              <button onClick={() => setVideoOn(v => !v)} className={`p-3 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}>
+                {videoOn ? <Video className="w-5 h-5 text-white" /> : <VideoOff className="w-5 h-5 text-white" />}
+              </button>
             </div>
           )}
         </div>
@@ -545,56 +539,50 @@ function RemovedBanner({ onLeave }) {
 }
 
 // ─── Video Tile ──────────────────────────────────────────────────────────────
-function VideoTile({ stream, muted, mirrored, name, role, isLocal, videoOn }) {
+function VideoTile({ stream, muted, mirrored, name, role, isLocal, videoOn, size = 'normal', micOn }) {
   const videoRef = useRef(null)
-  // Use the videoOn prop for both local and remote (VideoGrid now passes it for both)
   const showVideo = stream && videoOn === true
 
-  // Attach or detach stream based on videoOn state for reliable toggle
   useEffect(() => {
     if (!videoRef.current) return
-    
     if (stream && showVideo) {
-      // Attach stream when video should be on
       if (videoRef.current.srcObject !== stream) {
         videoRef.current.srcObject = stream
+        videoRef.current.play().catch(() => {})
       }
     } else {
-      // Detach stream when video should be off (more reliable than CSS hiding)
       if (videoRef.current.srcObject) {
         videoRef.current.srcObject = null
       }
     }
   }, [stream, showVideo])
 
-  const initials = name?.split(' ').map(n => n[0]).join('') || '?'
+  const initials = name?.split(' ').map(n => n[0]).join('').toUpperCase() || '?'
+  const isSmall = size === 'small'
 
   return (
     <div className="relative w-full h-full bg-gray-800 rounded-xl overflow-hidden group">
-      {/* Video element - only visible when showVideo is true */}
-      {showVideo && (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={muted}
-          className="absolute inset-0 w-full h-full object-cover"
-          style={mirrored ? { transform: 'scaleX(-1)' } : undefined}
-        />
-      )}
-      {/* Avatar shown when video is off */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={muted}
+        className={`absolute inset-0 w-full h-full object-cover ${showVideo ? '' : 'hidden'}`}
+        style={mirrored ? { transform: 'scaleX(-1)' } : undefined}
+      />
       {!showVideo && (
         <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
-          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-primary-600 rounded-full flex items-center justify-center">
-            <span className="text-white text-xl sm:text-2xl font-bold">{initials}</span>
+          <div className={`${isSmall ? 'w-12 h-12' : 'w-16 h-16 sm:w-20 sm:h-20'} ${role === 'teacher' ? 'bg-purple-600' : 'bg-primary-600'} rounded-full flex items-center justify-center`}>
+            <span className={`text-white ${isSmall ? 'text-sm' : 'text-xl sm:text-2xl'} font-bold`}>{initials}</span>
           </div>
         </div>
       )}
-      {/* Name label */}
+      {/* Name badge */}
       <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
-        <div className="px-2 py-1 bg-black/60 backdrop-blur-sm rounded-md text-white text-xs font-medium">
+        <div className={`px-2 py-1 bg-black/60 backdrop-blur-sm rounded-md text-white ${isSmall ? 'text-[10px]' : 'text-xs'} font-medium max-w-[120px] truncate flex items-center gap-1`}>
           {isLocal ? 'You' : name || 'Participant'}
           {role === 'teacher' && ' (Host)'}
+          {micOn === false && <MicOff className="w-3 h-3 text-red-400 ml-0.5 inline-block flex-shrink-0" />}
         </div>
       </div>
     </div>
@@ -602,56 +590,159 @@ function VideoTile({ stream, muted, mirrored, name, role, isLocal, videoOn }) {
 }
 
 // ─── Google Meet-style Video Grid ────────────────────────────────────────────
-function VideoGrid({ localStream, localVideoOn, remoteStreams, user, canvasRef }) {
-  const count = Object.keys(remoteStreams).length + 1 // +1 for local
+// Layout: Teacher video is ALWAYS the main large video.
+// Student videos appear as small tiles only when their camera is ON.
+// If a student turns camera OFF → their tile is removed from the grid.
+// If all students have camera OFF → only teacher video is shown.
+// Teacher video is always visible (with avatar if camera off).
+function VideoGrid({ localStream, localVideoOn, localMicOn, remoteStreams, remoteCameraStatus, user, canvasRef }) {
+  // Build participants: separate teacher (main) from student tiles
+  const buildParticipants = () => {
+    const isTeacher = user?.role === 'teacher'
+    let teacherParticipant = null
+    const studentParticipants = []
 
-  // Calculate grid layout based on participant count
-  const getGridClass = () => {
-    if (count === 1) return 'grid-cols-1 grid-rows-1'
-    if (count === 2) return 'grid-cols-2 grid-rows-1'
-    if (count <= 4) return 'grid-cols-2 grid-rows-2'
-    if (count <= 6) return 'grid-cols-3 grid-rows-2'
-    if (count <= 9) return 'grid-cols-3 grid-rows-3'
-    return 'grid-cols-4 grid-rows-3'
+    // Local user
+    const localP = {
+      key: 'local',
+      stream: localStream,
+      muted: true,
+      mirrored: true,
+      name: user?.name,
+      role: user?.role,
+      isLocal: true,
+      videoOn: localVideoOn,
+      micOn: localMicOn,
+      isTeacher,
+    }
+
+    if (isTeacher) {
+      teacherParticipant = localP
+    } else {
+      // Local student: add to tiles only if camera is on
+      if (localVideoOn) {
+        studentParticipants.push(localP)
+      }
+    }
+
+    // Remote participants
+    Object.entries(remoteStreams).forEach(([socketId, { stream, userInfo }]) => {
+      const remoteRole = userInfo?.role || 'student'
+      const remoteCamOn = remoteCameraStatus[socketId] !== false
+
+      const p = {
+        key: socketId,
+        stream,
+        muted: false,
+        mirrored: false,
+        name: userInfo?.userName,
+        role: remoteRole,
+        isLocal: false,
+        videoOn: remoteCamOn,
+        isTeacher: remoteRole === 'teacher',
+      }
+
+      if (remoteRole === 'teacher') {
+        teacherParticipant = p
+      } else {
+        // Students only appear in the grid if camera is ON
+        if (remoteCamOn) {
+          studentParticipants.push(p)
+        }
+      }
+    })
+
+    return { teacherParticipant, studentParticipants }
+  }
+
+  const { teacherParticipant, studentParticipants } = buildParticipants()
+  const studentCount = studentParticipants.length
+  const hasStudents = studentCount > 0
+
+  // Grid classes for student tiles
+  const getStudentGridClass = () => {
+    if (studentCount === 1) return 'grid-cols-1'
+    if (studentCount === 2) return 'grid-cols-2'
+    if (studentCount <= 4) return 'grid-cols-2'
+    if (studentCount <= 6) return 'grid-cols-3'
+    return 'grid-cols-3 sm:grid-cols-4'
   }
 
   return (
-    <div className={`w-full h-full grid ${getGridClass()} gap-2 p-2 relative`}>
-      {/* Local video */}
-      <div className="relative min-h-0">
-        <VideoTile
-          stream={localStream}
-          muted={true}
-          mirrored={true}
-          name={user?.name}
-          role={user?.role}
-          isLocal={true}
-          videoOn={localVideoOn}
-        />
-        <canvas ref={canvasRef} className="hidden" />
+    <div className="w-full h-full flex flex-col p-1.5 sm:p-2 relative overflow-hidden">
+      {/* MAIN VIDEO — Teacher always occupies main area */}
+      <div className={`flex-1 min-h-0 ${hasStudents ? 'mb-1.5 sm:mb-2' : ''}`}>
+        {teacherParticipant ? (
+          <VideoTile
+            stream={teacherParticipant.stream}
+            muted={teacherParticipant.muted}
+            mirrored={teacherParticipant.mirrored}
+            name={teacherParticipant.name}
+            role={teacherParticipant.role}
+            isLocal={teacherParticipant.isLocal}
+            videoOn={teacherParticipant.videoOn}
+            micOn={teacherParticipant.micOn}
+            size="normal"
+          />
+        ) : (
+          <div className="w-full h-full bg-gray-800 rounded-xl flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-white text-2xl font-bold">T</span>
+              </div>
+              <p className="text-gray-400 text-sm">Waiting for teacher...</p>
+            </div>
+          </div>
+        )}
+        {/* Canvas for face detection on local video (teacher) */}
+        {teacherParticipant?.isLocal && <canvas ref={canvasRef} className="hidden" />}
       </div>
 
-      {/* Remote videos */}
-      {Object.entries(remoteStreams).map(([socketId, { stream, userInfo }]) => {
-        // Check if remote video track is enabled
-        const videoTracks = stream?.getVideoTracks() || []
-        const remoteVideoOn = videoTracks.length > 0 && videoTracks.some(t => t.enabled && t.readyState === 'live')
-        return (
-          <div key={socketId} className="relative min-h-0">
-            <VideoTile
-              stream={stream}
-              muted={false}
-              mirrored={false}
-              name={userInfo?.userName}
-              role={userInfo?.role || 'student'}
-              isLocal={false}
-              videoOn={remoteVideoOn}
-            />
+      {/* STUDENT VIDEO GRID — Small tiles, only shown when camera is ON */}
+      {hasStudents && (
+        <div className="flex-shrink-0 w-full">
+          {/* Mobile: horizontal scroll strip */}
+          <div className="sm:hidden flex gap-1.5 overflow-x-auto pb-1 snap-x snap-mandatory"
+               style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}>
+            {studentParticipants.map((p) => (
+              <div key={p.key} className="flex-shrink-0 w-28 h-20 snap-center">
+                <VideoTile
+                  stream={p.stream}
+                  muted={p.muted}
+                  mirrored={p.mirrored}
+                  name={p.name}
+                  role={p.role}
+                  isLocal={p.isLocal}
+                  videoOn={p.videoOn}
+                  size="small"
+                />
+                {p.isLocal && <canvas ref={canvasRef} className="hidden" />}
+              </div>
+            ))}
           </div>
-        )
-      })}
+          {/* Desktop: responsive grid */}
+          <div className={`hidden sm:grid ${getStudentGridClass()} gap-1.5 sm:gap-2`}
+               style={{ maxHeight: studentCount <= 4 ? '180px' : '240px' }}>
+            {studentParticipants.map((p) => (
+              <div key={p.key} className="relative" style={{ height: studentCount <= 3 ? '140px' : '120px' }}>
+                <VideoTile
+                  stream={p.stream}
+                  muted={p.muted}
+                  mirrored={p.mirrored}
+                  name={p.name}
+                  role={p.role}
+                  isLocal={p.isLocal}
+                  videoOn={p.videoOn}
+                  size="small"
+                />
+                {p.isLocal && <canvas ref={canvasRef} className="hidden" />}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-      {/* Empty state */}
+      {/* Empty state — only local user, no remotes */}
       {Object.keys(remoteStreams).length === 0 && (
         <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 z-10">
           <div className="px-4 py-2 bg-gray-800/80 backdrop-blur-sm rounded-full text-gray-400 text-sm">
@@ -800,6 +891,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
 
   // WebRTC state
   const [remoteStreams, setRemoteStreams] = useState({})
+  const [remoteCameraStatus, setRemoteCameraStatus] = useState({}) // { socketId: boolean }
   const [participants, setParticipants] = useState({ teacher: null, students: [], count: 1 })
 
   const [localStream, setLocalStream] = useState(null)
@@ -868,12 +960,17 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
         console.log('Remote stream received:', socketId, userInfo)
         setRemoteStreams(prev => ({
           ...prev,
-          [socketId]: { stream: remoteStream, userInfo }
+          [socketId]: { stream: remoteStream, userInfo: { ...userInfo, role: userInfo?.role || 'student' } }
         }))
       }
 
       rtc.callbacks.onRemoteStreamRemoved = (socketId) => {
         setRemoteStreams(prev => {
+          const updated = { ...prev }
+          delete updated[socketId]
+          return updated
+        })
+        setRemoteCameraStatus(prev => {
           const updated = { ...prev }
           delete updated[socketId]
           return updated
@@ -1007,6 +1104,25 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
       rtc.callbacks.onClassEnded = (data) => {
         setAttendanceReport(data)
         setShowAttendanceReport(true)
+      }
+
+      // Remote participant toggled camera visibility
+      rtc.callbacks.onCameraStatus = (data) => {
+        const { socketId, enabled, role: senderRole } = data
+        setRemoteCameraStatus(prev => ({ ...prev, [socketId]: enabled }))
+        // Also update the role in remoteStreams userInfo if we have it
+        if (senderRole) {
+          setRemoteStreams(prev => {
+            if (!prev[socketId]) return prev
+            return {
+              ...prev,
+              [socketId]: {
+                ...prev[socketId],
+                userInfo: { ...prev[socketId].userInfo, role: senderRole }
+              }
+            }
+          })
+        }
       }
 
       // ── Waiting Room Callbacks ──
@@ -1147,8 +1263,12 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Toggle video track ──
-  // Students: camera MUST always stay ON — enforce videoOn=true and keep track enabled.
-  // Teachers: full control via track.enabled and setVideoEnabled.
+  // Students: CAN toggle camera visibility to others. The physical camera stays
+  // ON so face detection / engagement tracking continues in the background.
+  // When toggling OFF: disable the WebRTC video track (peers see black), broadcast
+  // camera-status OFF so other participants hide the tile.
+  // When toggling ON: re-enable track, broadcast camera-status ON.
+  // Teachers: same behavior.
   useEffect(() => {
     const stream = localStreamRef.current
     if (!stream) return
@@ -1156,22 +1276,30 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
     if (vt.length === 0) return
 
     if (user?.role === 'student') {
-      // Students cannot turn off camera — force-enable regardless of toggle state
-      vt.forEach(t => { t.enabled = true })
-      if (!videoOn) {
-        // Silently correct back to on; do not allow off state
-        setVideoOn(true)
+      // For students: keep the physical video track enabled (for face detection)
+      // but use setVideoEnabled to control what peers see
+      if (webrtcRef.current && typeof webrtcRef.current.setVideoEnabled === 'function') {
+        webrtcRef.current.setVideoEnabled(videoOn).catch(() => {})
       }
-      // For attendance dual-track: keep attendance video visible
+      // Broadcast camera status to room
+      if (webrtcRef.current && typeof webrtcRef.current.broadcastCameraStatus === 'function') {
+        webrtcRef.current.broadcastCameraStatus(videoOn)
+      }
+      // Keep the local video track always enabled for face detection
+      vt.forEach(t => { t.enabled = true })
+      // Keep attendance video element visible
       if (attendanceVideoRef.current) {
         attendanceVideoRef.current.style.visibility = 'visible'
       }
     } else {
       // Teachers: normal toggle — disabling track sends black video to all peers
       vt.forEach(t => { t.enabled = videoOn })
-      // Also update senders in all peer connections via setVideoEnabled
       if (webrtcRef.current && typeof webrtcRef.current.setVideoEnabled === 'function') {
         webrtcRef.current.setVideoEnabled(videoOn).catch(() => {})
+      }
+      // Broadcast camera status to room
+      if (webrtcRef.current && typeof webrtcRef.current.broadcastCameraStatus === 'function') {
+        webrtcRef.current.broadcastCameraStatus(videoOn)
       }
     }
   }, [videoOn, user?.role])
@@ -1467,7 +1595,9 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
           <VideoGrid
             localStream={localStream}
             localVideoOn={videoOn}
+            localMicOn={micOn}
             remoteStreams={remoteStreams}
+            remoteCameraStatus={remoteCameraStatus}
             user={user}
             canvasRef={canvasRef}
           />
@@ -1499,24 +1629,16 @@ function LiveClassroom({ classData, user, onLeave, initialSettings }) {
                   {micOn ? <Mic className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <MicOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
                 </button>
 
-                {/* Video — teachers can toggle; students camera is always ON */}
-                {user?.role === 'teacher' ? (
-                  <button
-                    onClick={() => setVideoOn(v => !v)}
-                    className={`p-3 sm:p-4 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
-                    title={videoOn ? 'Turn off camera' : 'Turn on camera'}
-                  >
-                    {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
-                  </button>
-                ) : (
-                  <button
-                    disabled
-                    title="Camera must stay ON — required for attendance tracking"
-                    className="p-3 sm:p-4 rounded-full bg-gray-700 opacity-50 cursor-not-allowed"
-                  >
-                    <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  </button>
-                )}
+                {/* Video — both teacher and student can toggle camera visibility.
+                    For students, the physical camera stays on (for face detection)
+                    but video is hidden from other participants. */}
+                <button
+                  onClick={() => setVideoOn(v => !v)}
+                  className={`p-3 sm:p-4 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
+                  title={videoOn ? 'Turn off camera' : 'Turn on camera'}
+                >
+                  {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
+                </button>
 
                 {/* Screen share - Teacher only */}
                 {user?.role === 'teacher' && (

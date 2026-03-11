@@ -125,3 +125,14 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* Video elements: ensure proper mobile playback */
+video {
+  -webkit-playsinline: true;
+  object-fit: cover;
+}
+
+/* Hide scrollbar on mobile video strip */
+.snap-x::-webkit-scrollbar {
+  display: none;
+}

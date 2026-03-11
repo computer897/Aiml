@@ -404,6 +404,24 @@ io.on("connection", socket => {
     });
   });
 
+  // ── Camera Status Toggle ──
+  // Students can disable their video visibility to others while keeping the
+  // physical camera on for engagement tracking / face detection.
+  socket.on("camera-status", data => {
+    const { roomId, enabled } = data;
+    if (!roomId) return;
+    // Only approved participants may broadcast camera status
+    if (!isApprovedParticipant(roomId, socket.id)) return;
+    socket.to(roomId).emit("camera-status", {
+      socketId: socket.id,
+      userId: socket.userId,
+      userName: socket.userName,
+      role: socket.role || 'student',
+      enabled
+    });
+    console.log(`[camera-status] ${socket.userName}: camera ${enabled ? 'ON' : 'OFF'} in room ${roomId}`);
+  });
+
   // ── Chat Messages ──
   socket.on("chat-message", data => {
     const { roomId, message } = data;

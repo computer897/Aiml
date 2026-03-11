@@ -78,11 +78,14 @@ export function createWebRTCManager() {
     onStudentEngagement: null,      // (data) => {} - Teacher receives engagement updates
     onClassEnded: null,             // ({ attendance, endTime }) => {} - Teacher ends class
     onAttendanceUpdate: null,       // (attendanceMap) => {} - Live join/leave updates to teacher
+    onCameraStatus: null,           // ({ socketId, userId, userName, enabled }) => {} - Remote camera toggle
     // Waiting room callbacks
     onWaitingForApproval: null,     // () => {} - Student is in waiting room
     onJoinApproved: null,           // () => {} - Student was approved
     onJoinRejected: null,           // (message) => {} - Student was rejected
     onJoinRequest: null,            // ({ socketId, userId, userName, time }) => {} - Teacher receives join request
+  }
+
   function connect() {
     if (destroyed) return
     if (socket?.connected) return
@@ -141,7 +144,8 @@ export function createWebRTCManager() {
             // Teacher initiates connection to students
             createPeerConnection(participant.socketId, true, {
               userId: participant.userId,
-              userName: participant.userName
+              userName: participant.userName,
+              role: participant.role || 'student'
             })
           } else {
             // Student: Don't initiate - wait for teacher's offer
@@ -157,7 +161,8 @@ export function createWebRTCManager() {
       console.log('[WebRTC] Student joined:', data)
       createPeerConnection(data.socketId, true, {
         userId: data.userId,
-        userName: data.userName
+        userName: data.userName,
+        role: data.role || 'student'
       })
     })
 
@@ -209,7 +214,9 @@ export function createWebRTCManager() {
         peers[data.from].close()
         delete peers[data.from]
       }
-      const pc = createPeerConnection(data.from, false, data.userInfo || {})
+      // Merge role into userInfo so VideoGrid knows who is teacher
+      const userInfo = { ...(data.userInfo || {}), role: data.userInfo?.role || 'teacher' }
+      const pc = createPeerConnection(data.from, false, userInfo)
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer))
         const answer = await pc.createAnswer()
@@ -326,6 +333,12 @@ export function createWebRTCManager() {
       console.log('[WebRTC] Class ended, attendance report received')
       callbacks.onClassEnded?.(data)
     })
+
+    // Remote participant toggled their camera
+    socket.on('camera-status', (data) => {
+      console.log('[WebRTC] Camera status from:', data.userName, '->', data.enabled)
+      callbacks.onCameraStatus?.(data)
+    })
   }
 
   function createPeerConnection(socketId, initiator = false, userInfo = {}) {
@@ -389,7 +402,7 @@ export function createWebRTCManager() {
           socket.emit('offer', {
             to: socketId,
             offer: pc.localDescription,
-            userInfo: { userId, userName }
+            userInfo: { userId, userName, role }
           })
         })
         .catch(error => console.error('[WebRTC] Error creating offer:', error))
@@ -576,6 +589,16 @@ export function createWebRTCManager() {
     console.log(`[WebRTC] Kicked student ${targetSocketId}`)
   }
 
+  /**
+   * Broadcast camera on/off status to all peers in the room.
+   * When a student disables camera visibility, the video track is disabled
+   * but the physical camera stays on for face detection / engagement tracking.
+   */
+  function broadcastCameraStatus(enabled) {
+    if (!socket || !roomId) return
+    socket.emit('camera-status', { roomId, enabled })
+  }
+
   function updateLocalStream(newStream) {
     localStream = newStream
     Object.values(peers).forEach(pc => {
@@ -733,5 +756,6 @@ export function createWebRTCManager() {
     removeUser,
     kickStudent,
     endClass,
+    broadcastCameraStatus,
   }
 }
