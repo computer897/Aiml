@@ -32,6 +32,7 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
 
   const modelsLoadedRef = useRef(false)
   const intervalRef     = useRef(null)
+  const lastVideoWarningRef = useRef(0)
 
   // ── Load face-api models once on mount ──────────────────────────────────
   useEffect(() => {
@@ -50,9 +51,19 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
 
     let status = 'not-detected'
 
-    if (modelsLoadedRef.current && videoRef.current) {
+    const videoElement = videoRef.current
+    const videoReady = !!(
+      videoElement &&
+      videoElement.readyState >= 2 &&
+      videoElement.videoWidth > 0 &&
+      videoElement.videoHeight > 0 &&
+      !videoElement.paused &&
+      !videoElement.ended
+    )
+
+    if (modelsLoadedRef.current && videoReady) {
       // Primary path: face-api.js detection
-      const result = await detectFaces(videoRef.current)
+      const result = await detectFaces(videoElement)
       const detected = result.faceDetected
       setFaceDetected(detected)
 
@@ -62,8 +73,19 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
         status = 'attentive'
       }
     } else {
+      if (videoElement && Date.now() - lastVideoWarningRef.current > 8000) {
+        console.log('[useEngagementDetection] Video not ready for face detection:', {
+          readyState: videoElement.readyState,
+          width: videoElement.videoWidth,
+          height: videoElement.videoHeight,
+          paused: videoElement.paused,
+          ended: videoElement.ended,
+        })
+        lastVideoWarningRef.current = Date.now()
+      }
+
       // Fallback: treat camera-on as present/attentive
-      const el = videoRef.current
+      const el = videoElement
       const hasLiveVideo = !!(
         el?.srcObject &&
         el.srcObject.getVideoTracks().some(t => t.enabled && t.readyState === 'live')

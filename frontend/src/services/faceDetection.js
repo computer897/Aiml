@@ -18,8 +18,19 @@ let modelsLoaded = false
 let modelsLoading = false
 let faceapi = null
 
-// CDN URLs for face-api.js models
-const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model'
+// Prefer local models in /public/models, then fall back to CDN
+const MODEL_URLS = [
+  '/models',
+  'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model'
+]
+
+async function loadModelsFromUri(modelUri) {
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(modelUri),
+    faceapi.nets.faceLandmark68Net.loadFromUri(modelUri),
+    faceapi.nets.faceRecognitionNet.loadFromUri(modelUri),
+  ])
+}
 
 /**
  * Load face-api.js library and models
@@ -64,14 +75,28 @@ export async function loadFaceDetectionModels() {
       })
     }
     
-    // Load required models
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-      faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
-    ])
+    // Load required models: local /models first, then CDN fallback
+    let loadedFrom = null
+    let lastError = null
+
+    for (const modelUri of MODEL_URLS) {
+      try {
+        await loadModelsFromUri(modelUri)
+        loadedFrom = modelUri
+        break
+      } catch (error) {
+        lastError = error
+        console.warn(`[FaceDetection] Failed loading models from ${modelUri}:`, error)
+      }
+    }
+
+    if (!loadedFrom) {
+      throw lastError || new Error('Unable to load face detection models')
+    }
     
     modelsLoaded = true
-    console.log('[FaceDetection] Models loaded successfully')
+    modelsLoading = false
+    console.log(`[FaceDetection] Models loaded successfully from ${loadedFrom}`)
     return true
   } catch (error) {
     console.error('[FaceDetection] Failed to load models:', error)
@@ -121,6 +146,18 @@ export async function detectFaces(videoElement) {
       timestamp: new Date().toISOString()
     }
   }
+
+  if (!videoElement.videoWidth || !videoElement.videoHeight || videoElement.paused || videoElement.ended) {
+    return {
+      success: false,
+      error: `Video dimensions invalid (${videoElement.videoWidth}x${videoElement.videoHeight}) or playback inactive`,
+      faceDetected: false,
+      multipleFaces: false,
+      faceCount: 0,
+      attentionScore: 0,
+      timestamp: new Date().toISOString()
+    }
+  }
   
   try {
     const options = getDetectionOptions()
@@ -128,7 +165,7 @@ export async function detectFaces(videoElement) {
     // Detect all faces with landmarks for attention estimation
     const detections = await faceapi
       .detectAllFaces(videoElement, options)
-      .withFaceLandmarks(true)
+      .withFaceLandmarks()
     
     const faceCount = detections.length
     const faceDetected = faceCount > 0

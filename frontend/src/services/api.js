@@ -124,12 +124,77 @@ export const classAPI = {
   },
 }
 
+// Document APIs
+export const documentAPI = {
+  getByClass: async (classId) => {
+    return apiRequest(`/documents/class/${classId}`)
+  },
+
+  upload: async (classId, title, description, fileUrl, fileName, fileType, fileSize) => {
+    return apiRequest('/documents', {
+      method: 'POST',
+      body: JSON.stringify({
+        class_id: classId,
+        title,
+        description,
+        file_url: fileUrl,
+        file_name: fileName,
+        file_type: fileType,
+        file_size: fileSize,
+      }),
+    })
+  },
+
+  delete: async (documentId) => {
+    return apiRequest(`/documents/${documentId}`, {
+      method: 'DELETE',
+    })
+  },
+
+  markViewed: async (documentId) => {
+    return apiRequest(`/documents/${documentId}/view`, {
+      method: 'POST',
+    })
+  },
+}
+
+// Announcement APIs
+export const announcementAPI = {
+  getByClass: async (classId) => {
+    return apiRequest(`/announcements/class/${classId}`)
+  },
+
+  create: async (classId, title, content, priority = 'normal') => {
+    return apiRequest('/announcements', {
+      method: 'POST',
+      body: JSON.stringify({ class_id: classId, title, content, priority }),
+    })
+  },
+
+  delete: async (announcementId) => {
+    return apiRequest(`/announcements/${announcementId}`, {
+      method: 'DELETE',
+    })
+  },
+
+  getSeenBy: async (announcementId) => {
+    return apiRequest(`/announcements/${announcementId}/seen`)
+  },
+}
+
 // Attendance APIs
 export const attendanceAPI = {
-  start: async (classId) => {
+  start: async (classId, sessionId) => {
     return apiRequest('/attendance/start', {
       method: 'POST',
-      body: JSON.stringify({ class_id: classId }),
+      body: JSON.stringify({ class_id: classId, session_id: sessionId }),
+    })
+  },
+
+  submitMetadata: async (metadata) => {
+    return apiRequest('/attendance/metadata', {
+      method: 'POST',
+      body: JSON.stringify(metadata),
     })
   },
 

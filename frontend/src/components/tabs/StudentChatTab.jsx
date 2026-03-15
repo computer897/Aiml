@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Smile, Paperclip, Search, Phone, VideoIcon, MoreVertical, Check, CheckCheck } from 'lucide-react'
-import { mockMessages } from '../../data/mockData'
 
 const contacts = [
   { id: 1, name: 'Dr. Sarah Johnson', role: 'Mathematics', avatar: 'SJ', online: true, lastMsg: 'Sure, let me go over it once more', time: '10:18 AM', unread: 0 },

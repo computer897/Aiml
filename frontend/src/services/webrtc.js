@@ -219,7 +219,10 @@ export function createWebRTCManager() {
       const pc = createPeerConnection(data.from, false, userInfo)
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer))
-        const answer = await pc.createAnswer()
+        const answer = await pc.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        })
         await pc.setLocalDescription(answer)
         socket.emit('answer', { to: data.from, answer })
       } catch (error) {
@@ -278,6 +281,7 @@ export function createWebRTCManager() {
     // Screen share started by someone
     socket.on('screen-share-started', (data) => {
       console.log('[WebRTC] Screen share started by:', data.socketId)
+      callbacks.onScreenShare?.(data.socketId, null, data)
     })
 
     // Screen share stopped by someone
@@ -354,21 +358,95 @@ export function createWebRTCManager() {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
     peers[socketId] = pc
 
-    // Add local tracks
+    // Add local tracks (audio + video)
     if (localStream) {
       localStream.getTracks().forEach(track => {
+        console.log(`[WebRTC] Adding local ${track.kind} track to peer ${socketId}, enabled:`, track.enabled, 'readyState:', track.readyState)
         pc.addTrack(track, localStream)
       })
+
+      // Safety: guarantee teacher audio is always sent to every participant.
+      // Some browsers can create sender/transceiver states where audio track
+      // is not bound as expected; this ensures one audio sender exists.
+      const audioTrack = localStream.getAudioTracks()[0]
+      const hasAudioSender = pc.getSenders().some(s => s.track?.kind === 'audio')
+      if (audioTrack && !hasAudioSender) {
+        try {
+          pc.addTrack(audioTrack, localStream)
+          console.log(`[WebRTC] Added fallback audio track sender for peer ${socketId}`)
+        } catch (error) {
+          console.warn(`[WebRTC] Failed to add fallback audio track for peer ${socketId}:`, error)
+        }
+      }
+    } else {
+      console.warn(`[WebRTC] No local stream when creating peer ${socketId}!`)
     }
 
-    // Handle incoming remote tracks
-    pc.ontrack = (event) => {
-      console.log('[WebRTC] Remote track from:', socketId, 'kind:', event.track.kind)
-      const stream = event.streams[0]
-      if (stream) {
-        remoteStreams[socketId] = stream
-        callbacks.onRemoteStream?.(socketId, stream, userInfo)
+    // If teacher is already sharing screen, ensure new peers receive the
+    // screen video (main stage) instead of camera video immediately.
+    if (screenStream && role === 'teacher') {
+      const screenTrack = screenStream.getVideoTracks()[0]
+      const videoSender = pc.getSenders().find(s => s.track?.kind === 'video')
+      if (screenTrack && videoSender) {
+        videoSender.replaceTrack(screenTrack).catch(err =>
+          console.error('[WebRTC] Error applying current screen share to new peer:', err)
+        )
       }
+    }
+
+    // Ensure bidirectional audio/video transceivers exist.
+    // addTrack already creates transceivers, so only add if genuinely missing.
+    const existingKinds = pc.getTransceivers().map(t => t.sender?.track?.kind || t.receiver?.track?.kind)
+    if (!existingKinds.includes('audio')) {
+      try {
+        pc.addTransceiver('audio', { direction: 'sendrecv' })
+        console.log(`[WebRTC] Added audio transceiver for peer ${socketId}`)
+      } catch (e) { /* already exists */ }
+    }
+    if (!existingKinds.includes('video')) {
+      try {
+        pc.addTransceiver('video', { direction: 'sendrecv' })
+        console.log(`[WebRTC] Added video transceiver for peer ${socketId}`)
+      } catch (e) { /* already exists */ }
+    }
+
+    // Log all transceivers for debugging
+    console.log(`[WebRTC] Transceivers for peer ${socketId}:`, pc.getTransceivers().map(t => ({
+      mid: t.mid,
+      direction: t.direction,
+      currentDirection: t.currentDirection,
+      senderKind: t.sender?.track?.kind,
+      senderEnabled: t.sender?.track?.enabled,
+      receiverKind: t.receiver?.track?.kind,
+    })))
+
+    // Handle incoming remote tracks — merge audio+video into single stream per peer
+    pc.ontrack = (event) => {
+      console.log(`[WebRTC] ▶ Remote track from: ${socketId}, kind: ${event.track.kind}, enabled: ${event.track.enabled}, muted: ${event.track.muted}, readyState: ${event.track.readyState}`)
+      
+      // Get or create the stream for this peer
+      let peerStream = remoteStreams[socketId]
+      if (!peerStream) {
+        peerStream = event.streams[0] || new MediaStream()
+        remoteStreams[socketId] = peerStream
+      }
+      
+      // Add track if not already present
+      const existing = peerStream.getTracks().find(t => t.id === event.track.id)
+      if (!existing) {
+        peerStream.addTrack(event.track)
+        console.log(`[WebRTC] Added ${event.track.kind} track to peer stream for ${socketId}. Stream now has: audio=${peerStream.getAudioTracks().length} video=${peerStream.getVideoTracks().length}`)
+      }
+
+      // Listen for track unmute (important — tracks can start muted until media flows)
+      event.track.onunmute = () => {
+        console.log(`[WebRTC] Track unmuted: ${event.track.kind} from ${socketId}`)
+        // Re-notify UI so it can update
+        callbacks.onRemoteStream?.(socketId, peerStream, userInfo)
+      }
+      
+      // Always notify UI so it can re-render with updated tracks
+      callbacks.onRemoteStream?.(socketId, peerStream, userInfo)
     }
 
     // Handle ICE candidates
@@ -396,7 +474,11 @@ export function createWebRTCManager() {
 
     // Initiator (teacher) creates and sends offer
     if (initiator) {
-      pc.createOffer()
+      // Ensure audio and video are properly negotiated
+      pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      })
         .then(offer => pc.setLocalDescription(offer))
         .then(() => {
           socket.emit('offer', {
@@ -563,6 +645,39 @@ export function createWebRTCManager() {
       // For the dual-track attendance use-case the track stays enabled at the stream level;
       // this helper is called from Classroom.jsx which handles that separately.
       videoTrack.enabled = false
+    }
+  }
+
+  /**
+   * Enable/disable local microphone and ensure audio sender binding exists for
+   * all peers so both teacher and students remain audible.
+   */
+  async function setAudioEnabled(enabled) {
+    if (!localStream) return
+    const audioTrack = localStream.getAudioTracks()[0]
+    if (!audioTrack) return
+
+    audioTrack.enabled = enabled
+
+    for (const pc of Object.values(peers)) {
+      const audioSender = pc.getSenders().find(s => s.track?.kind === 'audio')
+
+      if (audioSender) {
+        if (audioSender.track !== audioTrack) {
+          try {
+            await audioSender.replaceTrack(audioTrack)
+          } catch (e) {
+            console.error('[WebRTC] setAudioEnabled replaceTrack error:', e)
+          }
+        }
+      } else {
+        try {
+          pc.addTrack(audioTrack, localStream)
+          console.log('[WebRTC] Added missing audio sender while toggling mic')
+        } catch (e) {
+          console.error('[WebRTC] setAudioEnabled addTrack error:', e)
+        }
+      }
     }
   }
 
@@ -746,6 +861,7 @@ export function createWebRTCManager() {
     startScreenShare,
     stopScreenShare,
     setVideoEnabled,
+    setAudioEnabled,
     sendEngagementUpdate,
     isConnected,
     getSocketId,
