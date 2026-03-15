@@ -85,6 +85,8 @@ class Class(BaseModel):
     duration_minutes: int = Field(..., gt=0, description="Expected class duration in minutes")
     is_active: bool = Field(default=False, description="Whether class is currently in session")
     is_finished: bool = Field(default=False, description="Whether class has ended")
+    active_session_id: Optional[str] = Field(None, description="Current live session identifier")
+    session_started_at: Optional[datetime] = Field(None, description="When the current live session started")
     ended_at: Optional[datetime] = Field(None, description="When the class ended")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     enrolled_students: List[str] = Field(default_factory=list, description="List of student IDs")
@@ -127,6 +129,8 @@ class ClassResponse(BaseModel):
     duration_minutes: int
     is_active: bool
     is_finished: Optional[bool] = False
+    active_session_id: Optional[str] = None
+    session_started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     enrolled_students: List[str]
     created_at: datetime
@@ -146,9 +150,13 @@ class Attendance(BaseModel):
     student_name: str
     class_id: str
     session_id: str = Field(..., description="Unique identifier for this attendance session")
+    class_title: Optional[str] = None
+    teacher_name: Optional[str] = None
+    section: Optional[str] = None
     
     # Time tracking
     started_at: datetime = Field(default_factory=datetime.utcnow)
+    class_started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     total_class_duration_seconds: int = Field(default=0, description="Expected class duration")
     engagement_duration_seconds: int = Field(default=0, description="Time student was engaged")
@@ -175,6 +183,9 @@ class AttendanceStart(BaseModel):
     """Schema for starting attendance tracking."""
     class_id: str
     session_id: str
+    class_title: Optional[str] = None
+    teacher_name: Optional[str] = None
+    started_at: Optional[datetime] = None
 
 
 class FrameData(BaseModel):
@@ -199,6 +210,8 @@ class AttendanceMetadata(BaseModel):
     - Complies with privacy-first design
     """
     student_id: str = Field(..., description="Student's user ID")
+    student_name: Optional[str] = Field(None, description="Student's display name")
+    section: Optional[str] = Field(None, description="Student section or department")
     class_id: str = Field(..., description="Class identifier")
     session_id: str = Field(..., description="Attendance session identifier")
     face_detected: bool = Field(..., description="Whether a face was detected")
@@ -220,10 +233,23 @@ class EngagementUpdate(BaseModel):
     last_update: datetime
 
 
+class AttendanceEndRequest(BaseModel):
+    """Schema for ending attendance tracking or finalizing a class report."""
+    class_id: Optional[str] = None
+    session_id: str
+    ended_at: Optional[datetime] = None
+
+
 class AttendanceReport(BaseModel):
     """Attendance report for a class session."""
     class_id: str
-    class_title: str
+    session_id: Optional[str] = None
+    class_title: Optional[str] = None
+    teacher_name: Optional[str] = None
+    class_date: Optional[str] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    class_duration_seconds: int = 0
     total_students: int
     present_count: int
     absent_count: int

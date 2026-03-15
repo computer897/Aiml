@@ -1,21 +1,30 @@
-"""
-API routes for attendance tracking and reporting.
-Handles frame processing, attendance sessions, and report generation.
-"""
+"""Attendance tracking, engagement aggregation, and report export routes."""
+
+import csv
+import io
+import logging
+from datetime import datetime
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
-from typing import List
-from app.models import (
-    AttendanceStart, FrameData, AttendanceReport,
-    Attendance, EngagementUpdate, User, AttendanceMetadata
-)
+from fastapi.responses import StreamingResponse
+
+from app.attendance import get_attendance_manager
 from app.auth import get_current_student, get_current_teacher, get_current_user
+from app.config import settings
 from app.database import get_db
 from app.face_detection import get_face_detector
-from app.attendance import get_attendance_manager
+from app.models import (
+    AttendanceEndRequest,
+    AttendanceMetadata,
+    AttendanceReport,
+    AttendanceStart,
+    AttendanceStatus,
+    EngagementUpdate,
+    FrameData,
+    User,
+)
 from app.websocket import get_connection_manager
-from datetime import datetime
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +51,9 @@ async def start_attendance(
     Raises:
         HTTPException: If class not found or not active
     """
+    attendance_manager = get_attendance_manager()
+    await attendance_manager.ensure_indexes(db)
+
     # Verify class exists and is active
     class_doc = await db.classes.find_one({"class_id": attendance_data.class_id})
     
@@ -56,6 +68,13 @@ async def start_attendance(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Class session is not active"
         )
+
+    active_session_id = class_doc.get("active_session_id")
+    if active_session_id and attendance_data.session_id != active_session_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Attendance session does not match the active class session"
+        )
     
     # Verify student is enrolled
     if current_user.id not in class_doc.get("enrolled_students", []):
@@ -65,13 +84,16 @@ async def start_attendance(
         )
     
     # Start attendance session
-    attendance_manager = get_attendance_manager()
     attendance = await attendance_manager.start_attendance_session(
         student_id=current_user.id,
         student_name=current_user.name,
         class_id=attendance_data.class_id,
         session_id=attendance_data.session_id,
         class_duration_minutes=class_doc["duration_minutes"],
+        class_started_at=class_doc.get("session_started_at"),
+        class_title=class_doc.get("title"),
+        teacher_name=class_doc.get("teacher_name"),
+        section=current_user.department_name,
         db=db
     )
     
@@ -81,7 +103,8 @@ async def start_attendance(
         "message": "Attendance tracking started",
         "session_id": attendance_data.session_id,
         "class_id": attendance_data.class_id,
-        "student_id": current_user.id
+        "student_id": current_user.id,
+        "started_at": attendance.started_at.isoformat(),
     }
 
 
@@ -112,9 +135,11 @@ async def process_frame(
             detail="Cannot submit frames for another student"
         )
     
+    attendance_manager = get_attendance_manager()
+    await attendance_manager.ensure_indexes(db)
+
     # Process frame
     face_detector = get_face_detector()
-    attendance_manager = get_attendance_manager()
     
     result = await attendance_manager.process_frame(
         frame_data=frame_data,
@@ -193,8 +218,12 @@ async def process_metadata(
             detail="Cannot submit metadata for another student"
         )
     
+    attendance_manager = get_attendance_manager()
+    await attendance_manager.ensure_indexes(db)
+
     # Find attendance record
     attendance_doc = await db.attendance.find_one({
+        "class_id": metadata.class_id,
         "session_id": metadata.session_id,
         "student_id": metadata.student_id
     })
@@ -206,7 +235,7 @@ async def process_metadata(
         )
     
     # Calculate engagement time increment
-    current_time = datetime.utcnow()
+    current_time = metadata.timestamp
     last_frame_time = attendance_doc.get("last_frame_timestamp")
     time_increment = 0
     
@@ -214,12 +243,12 @@ async def process_metadata(
         time_diff = (current_time - last_frame_time).total_seconds()
         # Only count time if face is detected
         # Cap at reasonable interval to prevent manipulation
-        if metadata.face_detected:
-            time_increment = min(time_diff, 5)  # Max 5 seconds per update
+        if metadata.face_detected and time_diff > 0:
+            time_increment = min(time_diff, settings.frame_interval_seconds)
     
     # Update engagement metrics
     new_engagement_seconds = attendance_doc["engagement_duration_seconds"] + time_increment
-    total_duration = attendance_doc["total_class_duration_seconds"]
+    total_duration = attendance_doc.get("total_class_duration_seconds") or settings.frame_interval_seconds
     engagement_percentage = (new_engagement_seconds / total_duration * 100) if total_duration > 0 else 0
     
     # Combine attention score with presence tracking
@@ -229,6 +258,8 @@ async def process_metadata(
     # Update database
     update_data = {
         "last_frame_timestamp": current_time,
+        "student_name": current_user.name,
+        "section": metadata.section or current_user.department_name,
         "is_face_detected": metadata.face_detected,
         "is_looking_at_screen": metadata.attention_score > 50,  # Estimate from attention score
         "engagement_duration_seconds": new_engagement_seconds,
@@ -273,8 +304,8 @@ async def process_metadata(
 
 @router.post("/end", response_model=dict)
 async def end_attendance(
-    session_id: str,
-    current_user: User = Depends(get_current_student),
+    payload: AttendanceEndRequest,
+    current_user: User = Depends(get_current_user),
     db=Depends(get_db)
 ):
     """
@@ -289,20 +320,60 @@ async def end_attendance(
         Final attendance status
     """
     attendance_manager = get_attendance_manager()
-    
+    await attendance_manager.ensure_indexes(db)
+
+    if current_user.role == "teacher":
+        if not payload.class_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="class_id is required when a teacher finalizes attendance"
+            )
+
+        class_doc = await db.classes.find_one({"class_id": payload.class_id})
+        if not class_doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Class not found"
+            )
+
+        if class_doc["teacher_id"] != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to finalize this class"
+            )
+
+        report = await attendance_manager.finalize_class_attendance(
+            class_doc=class_doc,
+            session_id=payload.session_id,
+            ended_at=payload.ended_at or datetime.utcnow(),
+            db=db,
+        )
+
+        connection_manager = get_connection_manager()
+        for record in report.attendance_records:
+            await connection_manager.broadcast_attendance_status(
+                class_id=payload.class_id,
+                student_id=record["student_id"],
+                student_name=record["student_name"],
+                status=record["attendance_status"],
+                engagement_percentage=record["engagement_percentage"],
+            )
+
+        logger.info(f"✓ Attendance finalized for class {payload.class_id}, session {payload.session_id}")
+        return report.model_dump()
+
     attendance = await attendance_manager.end_attendance_session(
-        session_id=session_id,
+        session_id=payload.session_id,
         student_id=current_user.id,
         db=db
     )
-    
+
     if not attendance:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Attendance session not found"
         )
-    
-    # Broadcast final status via WebSocket
+
     connection_manager = get_connection_manager()
     await connection_manager.broadcast_attendance_status(
         class_id=attendance.class_id,
@@ -311,15 +382,50 @@ async def end_attendance(
         status=attendance.status,
         engagement_percentage=attendance.engagement_percentage
     )
-    
+
     logger.info(f"✓ Attendance ended for student {current_user.name}, status: {attendance.status}")
-    
+
     return {
         "message": "Attendance session ended",
         "status": attendance.status,
         "engagement_percentage": attendance.engagement_percentage,
         "engagement_seconds": attendance.engagement_duration_seconds
     }
+
+
+@router.get("/report/{class_id}", response_model=AttendanceReport)
+async def get_latest_attendance_report(
+    class_id: str,
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """Get the latest finalized attendance report for a class within retention."""
+    class_doc = await db.classes.find_one({"class_id": class_id})
+
+    if not class_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+
+    if class_doc["teacher_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view this report"
+        )
+
+    attendance_manager = get_attendance_manager()
+    report = await attendance_manager.get_latest_class_attendance_report(class_doc, db)
+    if report:
+        return report
+
+    return AttendanceReport(
+        class_id=class_id,
+        total_students=0,
+        present_count=0,
+        absent_count=0,
+        attendance_records=[]
+    )
 
 
 @router.get("/report/{class_id}/{session_id}", response_model=AttendanceReport)
@@ -359,7 +465,6 @@ async def get_attendance_report(
             detail="Not authorized to view this report"
         )
     
-    # Generate report
     attendance_manager = get_attendance_manager()
     report = await attendance_manager.get_class_attendance_report(
         class_id=class_id,
@@ -400,8 +505,15 @@ async def get_student_attendance_history(
             detail="Cannot view other students' attendance"
         )
     
-    # Fetch attendance records
-    cursor = db.attendance.find({"student_id": student_id}).sort("started_at", -1)
+    attendance_manager = get_attendance_manager()
+    await attendance_manager.ensure_indexes(db)
+
+    cursor = db.attendance_reports.find(
+        {
+            "student_id": student_id,
+            "expires_at": {"$gt": datetime.utcnow()},
+        }
+    ).sort("created_at", -1)
     records = await cursor.to_list(length=100)
     
     # Format response
@@ -412,8 +524,10 @@ async def get_student_attendance_history(
             "session_id": record["session_id"],
             "started_at": record["started_at"],
             "ended_at": record.get("ended_at"),
-            "engagement_percentage": record["engagement_percentage"],
-            "status": record["status"]
+            "engagement_percentage": round(float(record.get("engagement_ratio", 0) or 0) * 100, 2),
+            "engagement_time_seconds": record.get("engagement_time_seconds", 0),
+            "section": record.get("section") or "N/A",
+            "status": record.get("attendance_status", AttendanceStatus.ABSENT.value)
         })
     
     return formatted_records
@@ -546,6 +660,9 @@ async def get_live_attendance(
             detail="Not authorized to view this class"
         )
     
+    attendance_manager = get_attendance_manager()
+    await attendance_manager.ensure_indexes(db)
+
     # Get active attendance sessions for this class
     cursor = db.attendance.find({
         "class_id": class_id,
@@ -568,6 +685,7 @@ async def get_live_attendance(
         live_data.append({
             "student_id": record["student_id"],
             "student_name": record["student_name"],
+            "section": record.get("section") or "N/A",
             "face_detected": record.get("is_face_detected", False),
             "looking_at_screen": record.get("is_looking_at_screen", False),
             "engagement_percentage": record.get("engagement_percentage", 0),
@@ -608,10 +726,6 @@ async def export_attendance(
     Returns:
         CSV file with attendance data
     """
-    from fastapi.responses import StreamingResponse
-    import io
-    import csv
-    
     # Verify class exists and teacher owns it
     class_doc = await db.classes.find_one({"class_id": class_id})
     
@@ -627,14 +741,10 @@ async def export_attendance(
             detail="Not authorized to export this class"
         )
     
-    # Fetch attendance records
-    cursor = db.attendance.find({
-        "class_id": class_id,
-        "session_id": session_id
-    })
-    records = await cursor.to_list(length=None)
-    
-    if not records:
+    attendance_manager = get_attendance_manager()
+    report = await attendance_manager.get_class_attendance_report(class_id, session_id, db)
+
+    if not report.attendance_records:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No attendance records found for this session"
@@ -646,31 +756,23 @@ async def export_attendance(
     
     # Header
     writer.writerow([
-        "Student Name",
-        "Student ID",
+        "Name",
+        "Section",
+        "Engagement Time",
         "Status",
-        "Engagement %",
-        "Attention Score",
-        "Time Engaged (minutes)",
-        "Join Time",
-        "Leave Time"
+        "Engagement Percentage",
+        "Class Date"
     ])
     
     # Data rows
-    for record in records:
-        engagement_minutes = round(record.get("engagement_duration_seconds", 0) / 60, 1)
-        started = record.get("started_at")
-        ended = record.get("ended_at")
-        
+    for record in report.attendance_records:
         writer.writerow([
             record.get("student_name", "Unknown"),
-            record.get("student_id", ""),
-            record.get("status", "unknown"),
-            round(record.get("engagement_percentage", 0), 1),
-            round(record.get("attention_score", 0), 1),
-            engagement_minutes,
-            started.strftime("%Y-%m-%d %H:%M:%S") if started else "",
-            ended.strftime("%Y-%m-%d %H:%M:%S") if ended else "Still in class"
+            record.get("section", "N/A"),
+            record.get("engagement_time_label", "0s"),
+            record.get("attendance_status", "unknown").upper(),
+            round(record.get("engagement_percentage", 0), 2),
+            record.get("class_date", "")
         ])
     
     # Return CSV response

@@ -13,7 +13,15 @@ function AttendanceTable({ attendanceData, classId, sessionId }) {
     
     setDownloading(true)
     try {
-      await attendanceAPI.exportCsv(classId, sessionId)
+      const blob = await attendanceAPI.exportCsv(classId, sessionId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `attendance_${classId}_${sessionId}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
     } catch (error) {
       alert(error.message || 'Failed to download attendance report')
     } finally {
@@ -36,7 +44,7 @@ function AttendanceTable({ attendanceData, classId, sessionId }) {
 
   const getEngagementColor = (score) => {
     if (score >= 80) return 'text-green-600'
-    if (score >= 50) return 'text-yellow-600'
+    if (score >= 60) return 'text-yellow-600'
     if (score > 0) return 'text-red-600'
     return 'text-gray-400'
   }
@@ -74,13 +82,13 @@ function AttendanceTable({ attendanceData, classId, sessionId }) {
                 Student Name
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Email
+                Section
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Join Time
+                Engagement Time
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Engagement
@@ -89,45 +97,45 @@ function AttendanceTable({ attendanceData, classId, sessionId }) {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {attendanceData.map((student) => (
-              <tr key={student.id} className="hover:bg-gray-50 transition">
+              <tr key={student.student_id} className="hover:bg-gray-50 transition">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
                     <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
                       <span className="text-white text-xs font-semibold">
-                        {student.name.split(' ').map(n => n[0]).join('')}
+                        {student.student_name.split(' ').map(n => n[0]).join('')}
                       </span>
                     </div>
-                    <span className="text-sm font-medium text-gray-900">{student.name}</span>
+                    <span className="text-sm font-medium text-gray-900">{student.student_name}</span>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                  {student.email}
+                  {student.section || 'N/A'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(student.status)}`}>
-                    {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(student.attendance_status)}`}>
+                    {student.attendance_status.charAt(0).toUpperCase() + student.attendance_status.slice(1)}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                  {student.joinTime}
+                  {student.engagement_time_label}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center gap-2">
-                    <span className={`text-sm font-semibold ${getEngagementColor(student.engagementScore)}`}>
-                      {student.engagementScore}%
+                    <span className={`text-sm font-semibold ${getEngagementColor(student.engagement_percentage)}`}>
+                      {Math.round(student.engagement_percentage)}%
                     </span>
                     <div className="w-16 bg-gray-200 rounded-full h-1.5">
                       <div
                         className={`h-1.5 rounded-full ${
-                          student.engagementScore >= 80
+                          student.engagement_percentage >= 80
                             ? 'bg-green-500'
-                            : student.engagementScore >= 50
+                            : student.engagement_percentage >= 60
                             ? 'bg-yellow-500'
-                            : student.engagementScore > 0
+                            : student.engagement_percentage > 0
                             ? 'bg-red-500'
                             : 'bg-gray-400'
                         }`}
-                        style={{ width: `${student.engagementScore}%` }}
+                        style={{ width: `${student.engagement_percentage}%` }}
                       />
                     </div>
                   </div>

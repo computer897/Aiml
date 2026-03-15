@@ -341,11 +341,18 @@ async def activate_class(
     
     # Generate session ID
     session_id = f"{class_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+    session_started_at = datetime.utcnow()
     
     # Mark class as active
     await db.classes.update_one(
         {"_id": class_doc["_id"]},
-        {"$set": {"is_active": True}}
+        {"$set": {
+            "is_active": True,
+            "is_finished": False,
+            "active_session_id": session_id,
+            "session_started_at": session_started_at,
+            "ended_at": None,
+        }}
     )
     
     logger.info(f"✓ Class {class_id} activated with session {session_id}")
@@ -353,7 +360,8 @@ async def activate_class(
     return {
         "message": "Class activated",
         "class_id": class_id,
-        "session_id": session_id
+        "session_id": session_id,
+        "started_at": session_started_at.isoformat(),
     }
 
 
@@ -395,6 +403,8 @@ async def deactivate_class(
         {"$set": {
             "is_active": False,
             "is_finished": True,
+            "active_session_id": None,
+            "session_started_at": None,
             "ended_at": ended_at
         }}
     )
@@ -516,6 +526,7 @@ async def delete_class(
     
     # Also delete related attendance records
     await db.attendance.delete_many({"class_id": class_id})
+    await db.attendance_reports.delete_many({"class_id": class_id})
     
     logger.info(f"✓ Class {class_id} deleted by teacher {current_user.name}")
     

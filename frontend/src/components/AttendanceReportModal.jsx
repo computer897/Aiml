@@ -1,57 +1,55 @@
 import { X, Download, Users, CheckCircle, AlertCircle, Clock } from 'lucide-react'
+import { attendanceAPI } from '../services/api'
 
 /**
- * Shows the final attendance report after the teacher ends the class.
- * - Table: Student Name | Join Time | Leave Time | Duration | Engagement
+ * Shows the finalized attendance report after the teacher ends the class.
+ * - Table: Student Name | Section | Engagement Time | Status
  * - "Download CSV" button
  * Props:
  *   report   – array of attendance entries from server
  *   endTime  – ISO string of when the class ended
  *   classTitle – display name of the class
+ *   classId  – classroom id for CSV export
+ *   sessionId – finalized session id for CSV export
  *   onClose  – called when the user dismisses the modal
  */
-function AttendanceReportModal({ report = [], endTime, classTitle, onClose }) {
+function AttendanceReportModal({ report = [], endTime, classTitle, classId, sessionId, onClose }) {
   const endDate = endTime ? new Date(endTime) : new Date()
 
   // ── Summary stats ──
-  const total     = report.length
-  const attentive = report.filter(r => r.engagementStatus === 'Attentive').length
-  const notPresent  = report.filter(r => r.engagementStatus === 'Not Present').length
+  const total = report.length
+  const attentive = report.filter(r => r.attendance_status === 'present').length
+  const notPresent = report.filter(r => r.attendance_status === 'absent').length
   const avgDuration = total > 0
-    ? Math.round(report.reduce((s, r) => s + (r.totalDuration || 0), 0) / total)
+    ? Math.round(report.reduce((s, r) => s + (r.engagement_time_seconds || 0), 0) / total / 60)
     : 0
 
   // ── Engagement badge styling ──
   const engagementStyle = (status) => {
     switch (status) {
-      case 'Attentive':   return 'bg-green-900/40 text-green-400'
-      case 'Distracted':  return 'bg-yellow-900/40 text-yellow-400'
-      default:            return 'bg-gray-700 text-gray-400'
+      case 'present': return 'bg-green-900/40 text-green-400'
+      case 'absent': return 'bg-red-900/40 text-red-400'
+      default: return 'bg-gray-700 text-gray-400'
     }
   }
 
   // ── Download CSV ──
-  const handleDownloadCSV = () => {
-    const header = ['Student Name', 'Join Time', 'Leave Time', 'Duration (min)', 'Engagement Status']
-    const rows = report.map(r => [
-      `"${r.name || ''}"`,
-      r.joinTimeLabel  || r.joinTime  || '',
-      r.leaveTimeLabel || r.leaveTime || '',
-      r.totalDuration  ?? '',
-      r.engagementStatus || 'Not Present',
-    ])
+  const handleDownloadCSV = async () => {
+    if (!classId || !sessionId) return
 
-    const csvLines = [header.join(','), ...rows.map(r => r.join(','))]
-    const csvContent = csvLines.join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `attendance_${classTitle?.replace(/\s+/g, '_') || 'class'}_${new Date().toISOString().split('T')[0]}.csv`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    try {
+      const blob = await attendanceAPI.exportCsv(classId, sessionId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `attendance_${classId}_${sessionId}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      alert(error.message || 'Failed to download attendance report')
+    }
   }
 
   return (
@@ -100,37 +98,33 @@ function AttendanceReportModal({ report = [], endTime, classTitle, onClose }) {
               <thead>
                 <tr className="text-gray-400 text-xs uppercase tracking-wide border-b border-gray-700">
                   <th className="text-left pb-3 pr-4">Student Name</th>
-                  <th className="text-left pb-3 pr-4">Join Time</th>
-                  <th className="text-left pb-3 pr-4">Leave Time</th>
-                  <th className="text-left pb-3 pr-4">Duration</th>
-                  <th className="text-left pb-3">Engagement</th>
+                  <th className="text-left pb-3 pr-4">Section</th>
+                  <th className="text-left pb-3 pr-4">Engagement Time</th>
+                  <th className="text-left pb-3">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {report.map((entry, idx) => (
-                  <tr key={entry.socketId || idx} className="hover:bg-gray-800/50 transition-colors">
+                  <tr key={entry.student_id || idx} className="hover:bg-gray-800/50 transition-colors">
                     <td className="py-3 pr-4">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
                           <span className="text-white text-[10px] font-bold">
-                            {(entry.name || '?').split(' ').map(n => n[0]).join('').toUpperCase()}
+                            {(entry.student_name || '?').split(' ').map(n => n[0]).join('').toUpperCase()}
                           </span>
                         </div>
-                        <span className="text-white font-medium truncate">{entry.name || 'Student'}</span>
+                        <span className="text-white font-medium truncate">{entry.student_name || 'Student'}</span>
                       </div>
                     </td>
                     <td className="py-3 pr-4 text-gray-300">
-                      {entry.joinTimeLabel || (entry.joinTime ? new Date(entry.joinTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—')}
+                      {entry.section || 'N/A'}
                     </td>
                     <td className="py-3 pr-4 text-gray-300">
-                      {entry.leaveTimeLabel || (entry.leaveTime ? new Date(entry.leaveTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—')}
-                    </td>
-                    <td className="py-3 pr-4 text-gray-300">
-                      {entry.durationLabel || (entry.totalDuration != null ? `${entry.totalDuration} min` : '—')}
+                      {entry.engagement_time_label || '0s'}
                     </td>
                     <td className="py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${engagementStyle(entry.engagementStatus)}`}>
-                        {entry.engagementStatus || 'Not Present'}
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${engagementStyle(entry.attendance_status)}`}>
+                        {(entry.attendance_status || 'absent').toUpperCase()}
                       </span>
                     </td>
                   </tr>
@@ -150,7 +144,7 @@ function AttendanceReportModal({ report = [], endTime, classTitle, onClose }) {
           </button>
           <button
             onClick={handleDownloadCSV}
-            disabled={report.length === 0}
+            disabled={report.length === 0 || !classId || !sessionId}
             className="flex items-center gap-2 px-5 py-2 bg-primary-600 hover:bg-primary-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition shadow-lg shadow-primary-600/25"
           >
             <Download className="w-4 h-4" />

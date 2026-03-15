@@ -1,17 +1,10 @@
-"""
-Attendance tracking and management module.
-Handles student engagement tracking, attendance calculation, and status updates.
-"""
+"""Attendance tracking and finalized engagement reporting."""
 
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict
-from app.models import (
-    Attendance, AttendanceStatus, AttendanceStart, 
-    FrameData, AttendanceReport
-)
+from typing import Optional, Dict, Any, List
+from app.models import Attendance, AttendanceStatus, FrameData, AttendanceReport
 from app.config import settings
 from app.face_detection import FaceDetector
-from app.database import get_db
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,7 +19,101 @@ class AttendanceManager:
     def __init__(self):
         """Initialize attendance manager."""
         self.active_sessions: Dict[str, datetime] = {}  # session_id -> last_engaged_time
+        self._indexes_ready = False
         logger.info("✓ Attendance manager initialized")
+
+    async def ensure_indexes(self, db) -> None:
+        """Create MongoDB indexes needed for report lookup and TTL cleanup."""
+        if self._indexes_ready:
+            return
+
+        await db.attendance.create_index(
+            [("class_id", 1), ("session_id", 1), ("student_id", 1)],
+            name="attendance_class_session_student_idx"
+        )
+        await db.attendance_reports.create_index(
+            [("class_id", 1), ("session_id", 1), ("student_id", 1)],
+            unique=True,
+            name="attendance_report_unique_idx"
+        )
+        await db.attendance_reports.create_index(
+            [("class_id", 1), ("created_at", -1)],
+            name="attendance_report_class_created_idx"
+        )
+        await db.attendance_reports.create_index(
+            "expires_at",
+            expireAfterSeconds=0,
+            name="attendance_report_ttl_idx"
+        )
+        self._indexes_ready = True
+
+    def _format_duration_label(self, total_seconds: int) -> str:
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        if minutes and seconds:
+            return f"{minutes}m {seconds}s"
+        if minutes:
+            return f"{minutes} min"
+        return f"{seconds}s"
+
+    def _normalize_status(self, status: Any) -> str:
+        return status.value if isinstance(status, AttendanceStatus) else str(status)
+
+    def _serialize_report_row(self, record: dict, class_duration_seconds: Optional[int] = None) -> dict:
+        engagement_seconds = int(round(record.get("engagement_time_seconds", record.get("engagement_duration_seconds", 0)) or 0))
+        duration_seconds = int(round(class_duration_seconds or record.get("class_duration_seconds", record.get("total_class_duration_seconds", 0)) or 0))
+        ratio = float(record.get("engagement_ratio", 0) or 0)
+        if duration_seconds > 0 and ratio <= 0:
+            ratio = min(engagement_seconds / duration_seconds, 1)
+
+        attendance_status = self._normalize_status(record.get("attendance_status", record.get("status", AttendanceStatus.IN_PROGRESS)))
+
+        return {
+            "student_id": record.get("student_id"),
+            "student_name": record.get("student_name", "Student"),
+            "section": record.get("section") or "N/A",
+            "attendance_status": attendance_status,
+            "status": attendance_status,
+            "engagement_time_seconds": engagement_seconds,
+            "engagement_time_minutes": round(engagement_seconds / 60, 1),
+            "engagement_time_label": self._format_duration_label(engagement_seconds),
+            "engagement_ratio": round(ratio, 4),
+            "engagement_percentage": round(ratio * 100, 2),
+            "class_duration_seconds": duration_seconds,
+            "class_duration_label": self._format_duration_label(duration_seconds) if duration_seconds else "0s",
+            "class_date": record.get("class_date"),
+            "started_at": record.get("started_at"),
+            "ended_at": record.get("ended_at"),
+        }
+
+    def _build_report_payload(
+        self,
+        class_doc: Optional[dict],
+        session_id: str,
+        rows: List[dict],
+        started_at: Optional[datetime],
+        ended_at: Optional[datetime],
+        class_duration_seconds: int,
+    ) -> AttendanceReport:
+        present_count = sum(1 for row in rows if row["attendance_status"] == AttendanceStatus.PRESENT.value)
+        absent_count = sum(1 for row in rows if row["attendance_status"] == AttendanceStatus.ABSENT.value)
+
+        rows.sort(key=lambda row: (row["attendance_status"] != AttendanceStatus.PRESENT.value, row["student_name"].lower()))
+
+        return AttendanceReport(
+            class_id=class_doc["class_id"] if class_doc else "",
+            session_id=session_id,
+            class_title=class_doc.get("title") if class_doc else None,
+            teacher_name=class_doc.get("teacher_name") if class_doc else None,
+            class_date=started_at.date().isoformat() if started_at else None,
+            started_at=started_at,
+            ended_at=ended_at,
+            class_duration_seconds=class_duration_seconds,
+            total_students=len(rows),
+            present_count=present_count,
+            absent_count=absent_count,
+            attendance_records=rows,
+        )
     
     async def start_attendance_session(
         self, 
@@ -35,6 +122,10 @@ class AttendanceManager:
         class_id: str,
         session_id: str,
         class_duration_minutes: int,
+        class_started_at: Optional[datetime],
+        class_title: Optional[str],
+        teacher_name: Optional[str],
+        section: Optional[str],
         db
     ) -> Attendance:
         """
@@ -51,6 +142,8 @@ class AttendanceManager:
         Returns:
             Created Attendance object
         """
+        await self.ensure_indexes(db)
+
         # Check if session already exists
         existing = await db.attendance.find_one({
             "session_id": session_id,
@@ -58,8 +151,27 @@ class AttendanceManager:
         })
         
         if existing:
+            await db.attendance.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {
+                    "student_name": student_name,
+                    "class_title": class_title,
+                    "teacher_name": teacher_name,
+                    "section": section,
+                    "class_started_at": class_started_at,
+                    "total_class_duration_seconds": class_duration_minutes * 60,
+                }}
+            )
+            existing.update({
+                "student_name": student_name,
+                "class_title": class_title,
+                "teacher_name": teacher_name,
+                "section": section,
+                "class_started_at": class_started_at,
+                "total_class_duration_seconds": class_duration_minutes * 60,
+                "id": existing["_id"],
+            })
             logger.info(f"Attendance session already exists for student {student_id}")
-            existing["id"] = existing["_id"]
             return Attendance(**existing)
         
         # Create new attendance record
@@ -68,6 +180,10 @@ class AttendanceManager:
             student_name=student_name,
             class_id=class_id,
             session_id=session_id,
+            class_title=class_title,
+            teacher_name=teacher_name,
+            section=section,
+            class_started_at=class_started_at,
             total_class_duration_seconds=class_duration_minutes * 60,
             started_at=datetime.utcnow()
         )
@@ -106,6 +222,7 @@ class AttendanceManager:
             Dictionary with detection results and updated attendance info
         """
         try:
+            await self.ensure_indexes(db)
             # Find attendance record
             attendance_doc = await db.attendance.find_one({
                 "session_id": frame_data.session_id,
@@ -204,6 +321,7 @@ class AttendanceManager:
         Returns:
             Updated Attendance object, or None if not found
         """
+        await self.ensure_indexes(db)
         attendance_doc = await db.attendance.find_one({
             "session_id": session_id,
             "student_id": student_id
@@ -244,6 +362,192 @@ class AttendanceManager:
         updated_doc = await db.attendance.find_one({"_id": attendance_doc["_id"]})
         updated_doc["id"] = updated_doc["_id"]
         return Attendance(**updated_doc)
+
+    async def build_live_class_report(
+        self,
+        class_doc: dict,
+        session_id: str,
+        db
+    ) -> AttendanceReport:
+        await self.ensure_indexes(db)
+
+        cursor = db.attendance.find({"class_id": class_doc["class_id"], "session_id": session_id})
+        attendance_records = await cursor.to_list(length=None)
+
+        session_started_at = class_doc.get("session_started_at") or datetime.utcnow()
+        ended_at = class_doc.get("ended_at") or datetime.utcnow()
+        class_duration_seconds = max(
+            int((ended_at - session_started_at).total_seconds()),
+            settings.frame_interval_seconds,
+        )
+
+        rows = []
+        for record in attendance_records:
+            engagement_seconds = int(round(record.get("engagement_duration_seconds", 0) or 0))
+            engagement_ratio = min(engagement_seconds / class_duration_seconds, 1) if class_duration_seconds > 0 else 0
+            attendance_status = (
+                AttendanceStatus.PRESENT.value
+                if engagement_ratio * 100 >= settings.attendance_threshold
+                else AttendanceStatus.ABSENT.value
+            )
+
+            rows.append(self._serialize_report_row({
+                **record,
+                "attendance_status": attendance_status,
+                "engagement_ratio": engagement_ratio,
+                "class_duration_seconds": class_duration_seconds,
+                "class_date": session_started_at.date().isoformat(),
+                "ended_at": ended_at,
+            }, class_duration_seconds=class_duration_seconds))
+
+        return self._build_report_payload(
+            class_doc=class_doc,
+            session_id=session_id,
+            rows=rows,
+            started_at=session_started_at,
+            ended_at=ended_at,
+            class_duration_seconds=class_duration_seconds,
+        )
+
+    async def finalize_class_attendance(
+        self,
+        class_doc: dict,
+        session_id: str,
+        ended_at: datetime,
+        db
+    ) -> AttendanceReport:
+        await self.ensure_indexes(db)
+
+        session_started_at = class_doc.get("session_started_at") or ended_at
+        class_duration_seconds = max(
+            int((ended_at - session_started_at).total_seconds()),
+            settings.frame_interval_seconds,
+        )
+        class_date = session_started_at.date().isoformat()
+
+        cursor = db.attendance.find({"class_id": class_doc["class_id"], "session_id": session_id})
+        attendance_records = await cursor.to_list(length=None)
+
+        await db.attendance_reports.delete_many({
+            "class_id": class_doc["class_id"],
+            "session_id": session_id,
+        })
+
+        rows = []
+        final_documents = []
+        expires_at = ended_at + timedelta(hours=settings.attendance_retention_hours)
+
+        for record in attendance_records:
+            engagement_seconds = int(round(record.get("engagement_duration_seconds", 0) or 0))
+            engagement_ratio = min(engagement_seconds / class_duration_seconds, 1) if class_duration_seconds > 0 else 0
+            attendance_status = (
+                AttendanceStatus.PRESENT
+                if engagement_ratio * 100 >= settings.attendance_threshold
+                else AttendanceStatus.ABSENT
+            )
+
+            final_row = self._serialize_report_row({
+                **record,
+                "attendance_status": attendance_status,
+                "engagement_ratio": engagement_ratio,
+                "class_duration_seconds": class_duration_seconds,
+                "class_date": class_date,
+                "ended_at": ended_at,
+            }, class_duration_seconds=class_duration_seconds)
+            rows.append(final_row)
+
+            final_documents.append({
+                "class_id": class_doc["class_id"],
+                "session_id": session_id,
+                "student_id": final_row["student_id"],
+                "student_name": final_row["student_name"],
+                "section": final_row["section"],
+                "attendance_status": final_row["attendance_status"],
+                "engagement_time_seconds": final_row["engagement_time_seconds"],
+                "engagement_ratio": final_row["engagement_ratio"],
+                "class_duration_seconds": class_duration_seconds,
+                "class_date": class_date,
+                "started_at": session_started_at,
+                "ended_at": ended_at,
+                "created_at": datetime.utcnow(),
+                "expires_at": expires_at,
+            })
+
+            await db.attendance.update_one(
+                {"_id": record["_id"]},
+                {"$set": {
+                    "ended_at": ended_at,
+                    "engagement_percentage": final_row["engagement_percentage"],
+                    "status": attendance_status.value,
+                }}
+            )
+
+            session_key = f"{session_id}_{record['student_id']}"
+            self.active_sessions.pop(session_key, None)
+
+        if final_documents:
+            await db.attendance_reports.insert_many(final_documents)
+
+        return self._build_report_payload(
+            class_doc=class_doc,
+            session_id=session_id,
+            rows=rows,
+            started_at=session_started_at,
+            ended_at=ended_at,
+            class_duration_seconds=class_duration_seconds,
+        )
+
+    async def get_finalized_report(
+        self,
+        class_doc: dict,
+        session_id: str,
+        db
+    ) -> Optional[AttendanceReport]:
+        await self.ensure_indexes(db)
+
+        cursor = db.attendance_reports.find({
+            "class_id": class_doc["class_id"],
+            "session_id": session_id,
+            "expires_at": {"$gt": datetime.utcnow()},
+        })
+        records = await cursor.to_list(length=None)
+
+        if not records:
+            return None
+
+        started_at = min((record.get("started_at") for record in records if record.get("started_at")), default=None)
+        ended_at = max((record.get("ended_at") for record in records if record.get("ended_at")), default=None)
+        class_duration_seconds = max((int(record.get("class_duration_seconds", 0) or 0) for record in records), default=0)
+        rows = [self._serialize_report_row(record, class_duration_seconds=class_duration_seconds) for record in records]
+
+        return self._build_report_payload(
+            class_doc=class_doc,
+            session_id=session_id,
+            rows=rows,
+            started_at=started_at,
+            ended_at=ended_at,
+            class_duration_seconds=class_duration_seconds,
+        )
+
+    async def get_latest_class_attendance_report(
+        self,
+        class_doc: dict,
+        db
+    ) -> Optional[AttendanceReport]:
+        await self.ensure_indexes(db)
+
+        latest_record = await db.attendance_reports.find_one(
+            {
+                "class_id": class_doc["class_id"],
+                "expires_at": {"$gt": datetime.utcnow()},
+            },
+            sort=[("created_at", -1)]
+        )
+
+        if not latest_record:
+            return None
+
+        return await self.get_finalized_report(class_doc, latest_record["session_id"], db)
     
     async def get_class_attendance_report(
         self,
@@ -262,41 +566,22 @@ class AttendanceManager:
         Returns:
             AttendanceReport with summary statistics
         """
-        # Fetch class info
         class_doc = await db.classes.find_one({"class_id": class_id})
-        class_title = class_doc["title"] if class_doc else "Unknown Class"
-        
-        # Fetch all attendance records for this session
-        cursor = db.attendance.find({"class_id": class_id, "session_id": session_id})
-        attendance_records = await cursor.to_list(length=None)
-        
-        # Calculate statistics
-        total_students = len(attendance_records)
-        present_count = sum(1 for r in attendance_records if r["status"] == AttendanceStatus.PRESENT)
-        absent_count = sum(1 for r in attendance_records if r["status"] == AttendanceStatus.ABSENT)
-        
-        # Format records for response
-        formatted_records = []
-        for record in attendance_records:
-            formatted_records.append({
-                "student_id": record["student_id"],
-                "student_name": record["student_name"],
-                "engagement_percentage": record["engagement_percentage"],
-                "engagement_duration_seconds": record["engagement_duration_seconds"],
-                "total_duration_seconds": record["total_class_duration_seconds"],
-                "status": record["status"],
-                "started_at": record["started_at"],
-                "ended_at": record.get("ended_at")
-            })
-        
-        return AttendanceReport(
-            class_id=class_id,
-            class_title=class_title,
-            total_students=total_students,
-            present_count=present_count,
-            absent_count=absent_count,
-            attendance_records=formatted_records
-        )
+        if not class_doc:
+            return AttendanceReport(
+                class_id=class_id,
+                session_id=session_id,
+                total_students=0,
+                present_count=0,
+                absent_count=0,
+                attendance_records=[]
+            )
+
+        finalized_report = await self.get_finalized_report(class_doc, session_id, db)
+        if finalized_report:
+            return finalized_report
+
+        return await self.build_live_class_report(class_doc, session_id, db)
 
 
 # Global attendance manager instance

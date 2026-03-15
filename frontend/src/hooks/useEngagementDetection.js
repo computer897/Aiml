@@ -4,7 +4,7 @@ import { loadFaceDetectionModels, detectFaces } from '../services/faceDetection'
 /**
  * useEngagementDetection
  *
- * Runs face detection every 3 seconds and emits engagement status to the
+ * Runs face detection every 5 seconds and emits engagement status to the
  * signaling server via the WebRTC manager so the teacher dashboard receives
  * real-time student engagement data.
  *
@@ -102,7 +102,7 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
     webrtcRef.current.sendEngagementUpdate(userId, status, userName, true)
   }, [userId, userName, videoRef, webrtcRef])
 
-  // ── Start / stop 3-second interval tied to isActive ─────────────────────
+  // ── Start / stop 5-second interval tied to isActive ─────────────────────
   useEffect(() => {
     if (!isActive) {
       clearInterval(intervalRef.current)
@@ -110,9 +110,9 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
       return
     }
 
-    // Immediate first run, then every 3 seconds
+    // Immediate first run, then every 5 seconds
     runDetection()
-    intervalRef.current = setInterval(runDetection, 3000)
+    intervalRef.current = setInterval(runDetection, 5000)
 
     return () => {
       clearInterval(intervalRef.current)

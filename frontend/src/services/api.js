@@ -63,6 +63,37 @@ const apiRequest = async (endpoint, options = {}) => {
   }
 }
 
+const apiDownload = async (endpoint, options = {}) => {
+  const token = getAuthToken()
+  const headers = {
+    ...options.headers,
+  }
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  })
+
+  if (!response.ok) {
+    let message = 'Download request failed'
+    try {
+      const data = await response.json()
+      if (typeof data.detail === 'string') {
+        message = data.detail
+      }
+    } catch {
+      // Ignore JSON parse failures for non-JSON responses
+    }
+    throw new Error(message)
+  }
+
+  return response.blob()
+}
+
 // Authentication APIs
 export const authAPI = {
   register: async (name, email, password, role) => {
@@ -184,10 +215,16 @@ export const announcementAPI = {
 
 // Attendance APIs
 export const attendanceAPI = {
-  start: async (classId, sessionId) => {
+  start: async (classId, sessionId, options = {}) => {
     return apiRequest('/attendance/start', {
       method: 'POST',
-      body: JSON.stringify({ class_id: classId, session_id: sessionId }),
+      body: JSON.stringify({
+        class_id: classId,
+        session_id: sessionId,
+        class_title: options.classTitle,
+        teacher_name: options.teacherName,
+        started_at: options.startedAt,
+      }),
     })
   },
 
@@ -208,19 +245,38 @@ export const attendanceAPI = {
     })
   },
 
-  end: async (attendanceId) => {
+  end: async (payload) => {
+    const requestBody = typeof payload === 'string'
+      ? { session_id: payload }
+      : {
+          class_id: payload?.classId,
+          session_id: payload?.sessionId,
+          ended_at: payload?.endedAt,
+        }
+
     return apiRequest('/attendance/end', {
       method: 'POST',
-      body: JSON.stringify({ attendance_id: attendanceId }),
+      body: JSON.stringify(requestBody),
     })
   },
 
-  getReport: async (classId, sessionId) => {
-    return apiRequest(`/attendance/report/${classId}/${sessionId}`)
+  getReport: async (classId, sessionId = null) => {
+    if (sessionId) {
+      return apiRequest(`/attendance/report/${classId}/${sessionId}`)
+    }
+    return apiRequest(`/attendance/report/${classId}`)
   },
 
   getStudentHistory: async (studentId) => {
     return apiRequest(`/attendance/student/${studentId}`)
+  },
+
+  exportCSV: async (classId, sessionId) => {
+    return apiDownload(`/attendance/export/${classId}/${sessionId}`)
+  },
+
+  exportCsv: async (classId, sessionId) => {
+    return apiDownload(`/attendance/export/${classId}/${sessionId}`)
   },
 }
 

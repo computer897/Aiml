@@ -250,10 +250,10 @@ export async function detectFaces(videoElement) {
  * Create a face detection tracker that runs at intervals
  * @param {HTMLVideoElement} videoElement - Video element to track
  * @param {Function} onDetection - Callback with detection results
- * @param {number} intervalMs - Detection interval in milliseconds (default: 3000)
+ * @param {number} intervalMs - Detection interval in milliseconds (default: 5000)
  * @returns {Object} Controller object with stop() method
  */
-export function createFaceTracker(videoElement, onDetection, intervalMs = 3000) {
+export function createFaceTracker(videoElement, onDetection, intervalMs = 5000) {
   let intervalId = null
   let isRunning = false
   let isPaused = false

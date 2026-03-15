@@ -25,6 +25,7 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
   const [classes, setClasses] = useState([])
   const [activeClass, setActiveClass] = useState(null)
   const [attendanceData, setAttendanceData] = useState([])
+  const [attendanceSessionId, setAttendanceSessionId] = useState(null)
   const [announcements, setAnnouncements] = useState([])
   const [loading, setLoading] = useState(false)
 
@@ -35,10 +36,22 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
       setLoading(true)
       const createdClasses = await classAPI.getTeacherClasses()
       setClasses(createdClasses)
-      if (createdClasses.length > 0 && createdClasses[0].is_active) {
-        const report = await attendanceAPI.getReport(createdClasses[0].class_id)
-        setAttendanceData(report.attendance_records || [])
-        setActiveClass(createdClasses[0])
+      if (createdClasses.length > 0) {
+        let selectedClass = createdClasses[0]
+        let selectedReport = await attendanceAPI.getReport(createdClasses[0].class_id)
+
+        for (const cls of createdClasses) {
+          const report = await attendanceAPI.getReport(cls.class_id)
+          if ((report.attendance_records || []).length > 0) {
+            selectedClass = cls
+            selectedReport = report
+            break
+          }
+        }
+
+        setAttendanceData(selectedReport.attendance_records || [])
+        setActiveClass(selectedClass)
+        setAttendanceSessionId(selectedReport.session_id || null)
       }
       // Load announcements from localStorage
       const storedAnnouncements = localStorage.getItem(ANNOUNCEMENTS_STORAGE_KEY)
@@ -99,7 +112,7 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
 
   // Calculate student counts from real class data
   const totalStudents = classes.reduce((sum, cls) => sum + (cls.enrolled_students?.length || 0), 0)
-  const presentStudents = attendanceData.filter(a => a.is_present !== false).length || Math.round(totalStudents * 0.85)
+  const presentStudents = attendanceData.filter(a => a.attendance_status === 'present').length
 
   const renderTabContent = (activeTab, onTabChange) => {
     switch (activeTab) {
@@ -154,7 +167,7 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
             { label: 'Total Classes', value: classes.length, icon: BarChart3, color: 'bg-primary-100 dark:bg-primary-900/30', iconColor: 'text-primary-600', change: '+2 this week' },
             { label: 'Active Now', value: classes.filter(c => c.is_active).length, icon: Video, color: 'bg-green-100 dark:bg-green-900/30', iconColor: 'text-green-600', change: 'Live sessions' },
             { label: 'Total Students', value: totalStudents, icon: Users, color: 'bg-purple-100 dark:bg-purple-900/30', iconColor: 'text-purple-600', change: `${presentStudents} present` },
-            { label: 'Avg Engagement', value: attendanceData.length > 0 ? Math.round(attendanceData.reduce((s, a) => s + (a.engagement_percentage || 0), 0) / attendanceData.length) + '%' : '73%', icon: BarChart3, color: 'bg-amber-100 dark:bg-amber-900/30', iconColor: 'text-amber-600', change: '+5% from last week' },
+            { label: 'Avg Engagement', value: attendanceData.length > 0 ? Math.round(attendanceData.reduce((s, a) => s + (a.engagement_percentage || 0), 0) / attendanceData.length) + '%' : '0%', icon: BarChart3, color: 'bg-amber-100 dark:bg-amber-900/30', iconColor: 'text-amber-600', change: attendanceData.length > 0 ? 'Finalized report' : 'No retained report' },
           ].map((stat, i) => (
             <div key={i} className="card-interactive p-4 sm:p-5 hover:scale-[1.02] transition-transform" style={{ animationDelay: `${i * 80}ms` }}>
               <div className="flex items-center justify-between mb-3">
@@ -317,15 +330,15 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                     <p className="text-[11px] text-green-600 dark:text-green-400 mt-0.5">Present</p>
                   </div>
                   <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
-                    <p className="text-xl font-bold text-red-700 dark:text-red-400">{totalStudents - presentStudents}</p>
+                    <p className="text-xl font-bold text-red-700 dark:text-red-400">{Math.max(attendanceData.length - presentStudents, 0)}</p>
                     <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">Absent</p>
                   </div>
                   <div className="text-center p-3 bg-primary-50 dark:bg-primary-900/20 rounded-xl">
-                    <p className="text-xl font-bold text-primary-700 dark:text-primary-400">{totalStudents}</p>
+                    <p className="text-xl font-bold text-primary-700 dark:text-primary-400">{attendanceData.length}</p>
                     <p className="text-[11px] text-primary-600 dark:text-primary-400 mt-0.5">Total</p>
                   </div>
                 </div>
-                <AttendanceTable attendanceData={attendanceData} />
+                  <AttendanceTable attendanceData={attendanceData} classId={activeClass?.class_id} sessionId={attendanceSessionId} />
               </div>
             </section>
           </div>
