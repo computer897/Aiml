@@ -1047,6 +1047,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [screenShareStream, setScreenShareStream] = useState(null)
   const [screenShareBlockedMsg, setScreenShareBlockedMsg] = useState('')
+  const [screenShareSupported] = useState(() => !!navigator.mediaDevices?.getDisplayMedia)
   const [showChat, setShowChat] = useState(false)
   const [showEngagement, setShowEngagement] = useState(false)
   const [showDoubts, setShowDoubts] = useState(false)
@@ -1732,16 +1733,38 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       setTimeout(() => setScreenShareBlockedMsg(''), 4000)
       return
     }
+
+    // Check if screen sharing is supported (mobile devices often don't support it)
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setScreenShareBlockedMsg('Screen sharing is not supported on this device. Please use a desktop browser.')
+      setTimeout(() => setScreenShareBlockedMsg(''), 5000)
+      return
+    }
+
     if (!webrtcRef.current) return
+
     if (isScreenSharing) {
       webrtcRef.current.stopScreenShare()
       setIsScreenSharing(false)
       setScreenShareStream(null)
     } else {
-      const result = await webrtcRef.current.startScreenShare()
-      if (result) {
-        setScreenShareStream(result)
-        setIsScreenSharing(true)
+      try {
+        const result = await webrtcRef.current.startScreenShare()
+        if (result) {
+          setScreenShareStream(result)
+          setIsScreenSharing(true)
+        }
+      } catch (err) {
+        console.error('[Classroom] Screen share error:', err)
+        // Handle specific errors
+        if (err.name === 'NotAllowedError') {
+          setScreenShareBlockedMsg('Screen sharing permission denied')
+        } else if (err.name === 'NotSupportedError') {
+          setScreenShareBlockedMsg('Screen sharing is not supported on this device')
+        } else {
+          setScreenShareBlockedMsg('Failed to start screen sharing')
+        }
+        setTimeout(() => setScreenShareBlockedMsg(''), 4000)
       }
     }
   }
@@ -1974,14 +1997,29 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                   {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
                 </button>
 
-                {/* Screen share - Teacher only */}
+                {/* Screen share - Teacher only (shown on both mobile and desktop) */}
                 {user?.role === 'teacher' && (
                   <button
                     onClick={handleScreenShare}
-                    className={`p-3 sm:p-4 rounded-full transition ${isScreenSharing ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-700 hover:bg-gray-600'}`}
-                    title={isScreenSharing ? 'Stop presenting' : 'Present now'}
+                    className={`p-3 sm:p-4 rounded-full transition relative ${
+                      isScreenSharing
+                        ? 'bg-primary-600 hover:bg-primary-700'
+                        : screenShareSupported
+                          ? 'bg-gray-700 hover:bg-gray-600'
+                          : 'bg-gray-700/50 cursor-not-allowed'
+                    }`}
+                    title={
+                      !screenShareSupported
+                        ? 'Screen sharing not supported on this device'
+                        : isScreenSharing
+                          ? 'Stop presenting'
+                          : 'Present now'
+                    }
                   >
-                    <MonitorUp className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                    <MonitorUp className={`w-5 h-5 sm:w-6 sm:h-6 ${screenShareSupported ? 'text-white' : 'text-white/50'}`} />
+                    {!screenShareSupported && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full text-[8px] flex items-center justify-center text-gray-900 font-bold">!</span>
+                    )}
                   </button>
                 )}
 

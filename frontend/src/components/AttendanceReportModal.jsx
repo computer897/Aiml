@@ -1,8 +1,9 @@
-import { X, Download, Users, CheckCircle, AlertCircle, Clock } from 'lucide-react'
+import { X, Download, Users, CheckCircle, AlertCircle, Clock, Percent } from 'lucide-react'
 import { attendanceAPI } from '../services/api'
 
 /**
  * Shows the finalized attendance report after the teacher ends the class.
+ * - Summary: Total Students | Present | Absent | Attendance Rate
  * - Table: Student Name | Section | Engagement Time | Status
  * - "Download CSV" button
  * Props:
@@ -18,10 +19,11 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
 
   // ── Summary stats ──
   const total = report.length
-  const attentive = report.filter(r => r.attendance_status === 'present').length
-  const notPresent = report.filter(r => r.attendance_status === 'absent').length
-  const avgDuration = total > 0
-    ? Math.round(report.reduce((s, r) => s + (r.engagement_time_seconds || 0), 0) / total / 60)
+  const presentCount = report.filter(r => r.attendance_status === 'present').length
+  const absentCount = report.filter(r => r.attendance_status === 'absent').length
+  const attendanceRate = total > 0 ? Math.round((presentCount / total) * 100) : 0
+  const avgEngagement = total > 0
+    ? Math.round(report.reduce((s, r) => s + (r.engagement_percentage || 0), 0) / total)
     : 0
 
   // ── Engagement badge styling ──
@@ -71,19 +73,41 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
         </div>
 
         {/* ── Summary Stats ── */}
-        <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-gray-700 flex-shrink-0">
-          {[
-            { label: 'Total Students', value: total,       color: 'text-white',        icon: Users },
-            { label: 'Attentive',      value: attentive,   color: 'text-green-400',    icon: CheckCircle },
-            { label: 'Not Present',    value: notPresent,  color: 'text-red-400',      icon: AlertCircle },
-            { label: 'Avg Duration',   value: `${avgDuration}m`, color: 'text-primary-400', icon: Clock },
-          ].map(({ label, value, color, icon: Icon }) => (
-            <div key={label} className="bg-gray-800 rounded-xl p-3 text-center">
-              <Icon className={`w-4 h-4 ${color} mx-auto mb-1`} />
-              <p className={`text-lg font-bold ${color}`}>{value}</p>
-              <p className="text-gray-500 text-[10px]">{label}</p>
+        <div className="px-6 py-4 border-b border-gray-700 flex-shrink-0">
+          {/* Main Attendance Summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            {[
+              { label: 'Total Students', value: total,            color: 'text-white',        icon: Users },
+              { label: 'Present',        value: presentCount,     color: 'text-green-400',    icon: CheckCircle },
+              { label: 'Absent',         value: absentCount,      color: 'text-red-400',      icon: AlertCircle },
+              { label: 'Attendance Rate', value: `${attendanceRate}%`, color: 'text-primary-400', icon: Percent },
+            ].map(({ label, value, color, icon: Icon }) => (
+              <div key={label} className="bg-gray-800 rounded-xl p-3 text-center">
+                <Icon className={`w-4 h-4 ${color} mx-auto mb-1`} />
+                <p className={`text-lg font-bold ${color}`}>{value}</p>
+                <p className="text-gray-500 text-[10px]">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Attendance Rate Bar */}
+          <div className="bg-gray-800 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-300">Overall Attendance</span>
+              <span className={`text-sm font-bold ${attendanceRate >= 70 ? 'text-green-400' : 'text-red-400'}`}>
+                {attendanceRate}%
+              </span>
             </div>
-          ))}
+            <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${attendanceRate >= 70 ? 'bg-green-500' : 'bg-red-500'}`}
+                style={{ width: `${attendanceRate}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              {presentCount} of {total} students met the 70% presence requirement
+            </p>
+          </div>
         </div>
 
         {/* ── Table ── */}
@@ -100,6 +124,7 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
                   <th className="text-left pb-3 pr-4">Student Name</th>
                   <th className="text-left pb-3 pr-4">Section</th>
                   <th className="text-left pb-3 pr-4">Engagement Time</th>
+                  <th className="text-left pb-3 pr-4">Engagement %</th>
                   <th className="text-left pb-3">Status</th>
                 </tr>
               </thead>
@@ -121,6 +146,17 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
                     </td>
                     <td className="py-3 pr-4 text-gray-300">
                       {entry.engagement_time_label || '0s'}
+                    </td>
+                    <td className="py-3 pr-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${(entry.engagement_percentage || 0) >= 70 ? 'bg-green-500' : 'bg-red-500'}`}
+                            style={{ width: `${Math.min(entry.engagement_percentage || 0, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-gray-300 text-xs">{Math.round(entry.engagement_percentage || 0)}%</span>
+                      </div>
                     </td>
                     <td className="py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${engagementStyle(entry.attendance_status)}`}>

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { X, Upload, Calendar, Clock } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { X, Upload, Calendar, Clock, AlertCircle } from 'lucide-react'
 
 function CreateClassModal({ isOpen, onClose, onCreate }) {
   const [formData, setFormData] = useState({
@@ -7,28 +7,55 @@ function CreateClassModal({ isOpen, onClose, onCreate }) {
     title: '',
     topic: '',
     date: '',
-    time: '',
+    startTime: '',
+    endTime: '',
     duration: '60',
     notes: ''
   })
 
+  // Calculate end time based on start time and duration
+  const calculatedEndTime = useMemo(() => {
+    if (!formData.startTime || !formData.duration) return ''
+    const [hours, minutes] = formData.startTime.split(':').map(Number)
+    const startMinutes = hours * 60 + minutes
+    const endMinutes = startMinutes + parseInt(formData.duration)
+    const endHours = Math.floor(endMinutes / 60) % 24
+    const endMins = endMinutes % 60
+    return `${endHours.toString().padStart(2, '0')}:${endMins.toString().padStart(2, '0')}`
+  }, [formData.startTime, formData.duration])
+
+  // Calculate class duration in minutes from start and end time
+  const classDurationMinutes = useMemo(() => {
+    if (!formData.startTime || !formData.endTime) return parseInt(formData.duration) || 60
+    const [startH, startM] = formData.startTime.split(':').map(Number)
+    const [endH, endM] = formData.endTime.split(':').map(Number)
+    let duration = (endH * 60 + endM) - (startH * 60 + startM)
+    if (duration <= 0) duration += 24 * 60 // Handle overnight classes
+    return duration
+  }, [formData.startTime, formData.endTime, formData.duration])
+
+  // Attendance requirement (70% of class time)
+  const attendanceRequirement = Math.ceil(classDurationMinutes * 0.7)
+
   const handleSubmit = (e) => {
     e.preventDefault()
-    // Combine date and time into ISO datetime string
-    const scheduleTime = `${formData.date}T${formData.time}:00`
+    // Combine date and start time into ISO datetime string
+    const scheduleTime = `${formData.date}T${formData.startTime}:00`
     onCreate({
       classId: formData.classId,
       title: formData.title,
       description: formData.topic + (formData.notes ? ' - ' + formData.notes : ''),
       scheduleTime: scheduleTime,
-      duration: formData.duration
+      duration: classDurationMinutes.toString(),
+      endTime: formData.endTime || calculatedEndTime
     })
     setFormData({
       classId: '',
       title: '',
       topic: '',
       date: '',
-      time: '',
+      startTime: '',
+      endTime: '',
       duration: '60',
       notes: ''
     })
@@ -54,7 +81,7 @@ function CreateClassModal({ isOpen, onClose, onCreate }) {
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 sm:space-y-5">
           {/* Class ID */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Class ID *
             </label>
             <input
@@ -63,13 +90,13 @@ function CreateClassModal({ isOpen, onClose, onCreate }) {
               onChange={(e) => setFormData({ ...formData, classId: e.target.value })}
               placeholder="e.g., CS101-2026"
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400"
             />
           </div>
 
           {/* Class Title */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Class Title *
             </label>
             <input
@@ -78,13 +105,13 @@ function CreateClassModal({ isOpen, onClose, onCreate }) {
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               placeholder="e.g., Advanced Mathematics"
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400"
             />
           </div>
 
           {/* Topic */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Topic *
             </label>
             <input
@@ -93,14 +120,14 @@ function CreateClassModal({ isOpen, onClose, onCreate }) {
               onChange={(e) => setFormData({ ...formData, topic: e.target.value })}
               placeholder="e.g., Calculus - Integration Techniques"
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400"
             />
           </div>
 
-          {/* Date and Time */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Date and Start/End Time */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Date *
               </label>
               <div className="relative">
@@ -110,37 +137,72 @@ function CreateClassModal({ isOpen, onClose, onCreate }) {
                   value={formData.date}
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                   required
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Time *
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Start Time *
               </label>
               <div className="relative">
                 <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="time"
-                  value={formData.time}
-                  onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                  value={formData.startTime}
+                  onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
                   required
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                End Time *
+              </label>
+              <div className="relative">
+                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="time"
+                  value={formData.endTime || calculatedEndTime}
+                  onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+                  required
+                  className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                 />
               </div>
             </div>
           </div>
 
-          {/* Duration */}
+          {/* Class Duration & Attendance Info */}
+          {formData.startTime && (formData.endTime || calculatedEndTime) && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-semibold text-blue-800 dark:text-blue-300">Class Session Details</p>
+                  <div className="mt-2 space-y-1 text-blue-700 dark:text-blue-400">
+                    <p>Duration: <span className="font-medium">{classDurationMinutes} minutes</span></p>
+                    <p>Attendance Requirement: <span className="font-medium">{attendanceRequirement} minutes (70%)</span></p>
+                    <p className="text-xs text-blue-600 dark:text-blue-500 mt-2">
+                      Students must be present (face detected) for at least {attendanceRequirement} minutes to be marked as "Present"
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Quick Duration Preset */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Duration (minutes) *
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Quick Duration Preset
             </label>
             <select
               value={formData.duration}
-              onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              onChange={(e) => setFormData({ ...formData, duration: e.target.value, endTime: '' })}
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
             >
               <option value="30">30 minutes</option>
               <option value="45">45 minutes</option>
@@ -149,19 +211,22 @@ function CreateClassModal({ isOpen, onClose, onCreate }) {
               <option value="90">90 minutes</option>
               <option value="120">120 minutes</option>
             </select>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Selecting a preset will auto-calculate the end time, or set end time manually above.
+            </p>
           </div>
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Class Notes
             </label>
             <textarea
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               placeholder="Add any notes or instructions for students..."
-              rows={4}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
+              rows={3}
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
             />
           </div>
 
