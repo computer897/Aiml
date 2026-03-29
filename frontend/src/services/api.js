@@ -153,6 +153,10 @@ export const classAPI = {
   getStudentClasses: async () => {
     return apiRequest('/class/student/classes')
   },
+
+  getStudentNotifications: async () => {
+    return apiRequest('/class/student/notifications')
+  },
 }
 
 // Document APIs
@@ -267,6 +271,17 @@ export const attendanceAPI = {
     return apiRequest(`/attendance/report/${classId}`)
   },
 
+  listReports: async (classId, limit = 25) => {
+    const params = new URLSearchParams({ limit: String(limit) })
+    return apiRequest(`/attendance/reports/${classId}?${params.toString()}`)
+  },
+
+  deleteReport: async (classId, sessionId) => {
+    return apiRequest(`/attendance/report/${classId}/${sessionId}`, {
+      method: 'DELETE',
+    })
+  },
+
   getStudentHistory: async (studentId) => {
     return apiRequest(`/attendance/student/${studentId}`)
   },
@@ -277,6 +292,10 @@ export const attendanceAPI = {
 
   exportCsv: async (classId, sessionId) => {
     return apiDownload(`/attendance/export/${classId}/${sessionId}`)
+  },
+
+  getLive: async (classId) => {
+    return apiRequest(`/attendance/live/${classId}`)
   },
 }
 

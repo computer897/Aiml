@@ -16,7 +16,6 @@ import StudentCalendarTab from '../components/tabs/StudentCalendarTab'
 // Storage keys (matching other components)
 const NOTES_STORAGE_KEY = 'student_notes'
 const RECORDINGS_STORAGE_KEY = 'class_recordings'
-const NOTIFICATIONS_STORAGE_KEY = 'student_notifications'
 
 function StudentDashboard({ user, onLogout, onUserUpdate }) {
   const navigate = useNavigate()
@@ -26,19 +25,18 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
   const [notes, setNotes] = useState([])
   const [recordings, setRecordings] = useState([])
   const [notifications, setNotifications] = useState([])
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
 
   useEffect(() => {
     loadEnrolledClasses()
-    // Load data from localStorage
+    loadStudentNotifications()
+    // Load data from localStorage for notes/recordings
     try {
       const savedNotes = localStorage.getItem(NOTES_STORAGE_KEY)
       if (savedNotes) setNotes(JSON.parse(savedNotes))
       
       const savedRecordings = localStorage.getItem(RECORDINGS_STORAGE_KEY)
       if (savedRecordings) setRecordings(JSON.parse(savedRecordings))
-      
-      const savedNotifications = localStorage.getItem(NOTIFICATIONS_STORAGE_KEY)
-      if (savedNotifications) setNotifications(JSON.parse(savedNotifications))
     } catch (e) {
       console.error('Error loading data from localStorage:', e)
     }
@@ -52,6 +50,19 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
     } catch { /* silent */ } finally { setLoading(false) }
   }
 
+  const loadStudentNotifications = async () => {
+    try {
+      setNotificationsLoading(true)
+      const data = await classAPI.getStudentNotifications()
+      setNotifications(data)
+    } catch (error) {
+      console.error('Failed to load notifications:', error)
+      setNotifications([])
+    } finally {
+      setNotificationsLoading(false)
+    }
+  }
+
   const handleJoinClass = async (classId) => {
     if (!classId) { const id = prompt('Enter Class ID to join:'); if (!id) return; classId = id }
     setLoading(true)
@@ -60,6 +71,7 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
         await classAPI.join(classId)
         // Notify on successful enrollment
         notifyClassEvent('Class Joined', `You have successfully enrolled in the class!`)
+        await loadStudentNotifications()
       } catch (e) { 
         if (!e.message?.includes('Already enrolled')) throw e 
       }
@@ -78,6 +90,13 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
     purple: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400', dot: 'bg-purple-500' },
     cyan: { bg: 'bg-cyan-100 dark:bg-cyan-900/30', text: 'text-cyan-600 dark:text-cyan-400', dot: 'bg-cyan-500' },
     amber: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400', dot: 'bg-amber-500' },
+  }
+
+  const formatNotificationTime = (notif) => {
+    const source = notif?.schedule_time || notif?.created_at || notif?.time
+    if (!source) return ''
+    const date = new Date(source)
+    return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
   const renderTabContent = (activeTab) => {
@@ -332,35 +351,52 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
                 </span>
               </div>
               <div className="p-5 space-y-3">
-                {notifications.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No notifications</p>
-                ) : notifications.map(notif => (
-                  <div key={notif.id} className={`p-3.5 rounded-xl border transition-all hover:shadow-sm ${
-                    notif.isRead
-                      ? 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900'
-                      : 'border-primary-100 dark:border-primary-900/40 bg-primary-50/50 dark:bg-primary-900/10'
-                  }`}>
-                    <div className="flex items-start gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        notif.type === 'announcement' ? 'bg-blue-100 dark:bg-blue-900/30' :
-                        notif.type === 'reminder' ? 'bg-amber-100 dark:bg-amber-900/30' :
-                        'bg-green-100 dark:bg-green-900/30'
-                      }`}>
-                        <Bell className={`w-3.5 h-3.5 ${
-                          notif.type === 'announcement' ? 'text-blue-600' :
-                          notif.type === 'reminder' ? 'text-amber-600' :
-                          'text-green-600'
-                        }`} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h4 className="text-xs font-semibold text-gray-900 dark:text-white">{notif.title}</h4>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{notif.message}</p>
-                        <p className="text-[10px] text-gray-400 mt-1.5">{notif.time}</p>
-                      </div>
-                      {!notif.isRead && <div className="w-2 h-2 bg-primary-500 rounded-full flex-shrink-0 mt-1" />}
-                    </div>
+                {notificationsLoading ? (
+                  <div className="flex items-center justify-center py-6">
+                    <div className="w-6 h-6 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
                   </div>
-                ))}
+                ) : notifications.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No notifications</p>
+                ) : notifications.map((notif) => {
+                  const notificationType = notif.type || 'reminder'
+                  const isRead = Boolean(notif.is_read || notif.read)
+                  const accentBg = notificationType === 'announcement'
+                    ? 'bg-blue-100 dark:bg-blue-900/30'
+                    : notificationType === 'reminder'
+                    ? 'bg-amber-100 dark:bg-amber-900/30'
+                    : 'bg-green-100 dark:bg-green-900/30'
+                  const iconColor = notificationType === 'announcement'
+                    ? 'text-blue-600'
+                    : notificationType === 'reminder'
+                    ? 'text-amber-600'
+                    : 'text-green-600'
+
+                  return (
+                    <div
+                      key={notif.id}
+                      className={`p-3.5 rounded-xl border transition-all hover:shadow-sm ${
+                        isRead
+                          ? 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900'
+                          : 'border-primary-100 dark:border-primary-900/40 bg-primary-50/50 dark:bg-primary-900/10'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${accentBg}`}>
+                          <Bell className={`w-3.5 h-3.5 ${iconColor}`} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-semibold text-gray-900 dark:text-white">{notif.title}</h4>
+                          {notif.class_title && (
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500">{notif.class_title}</p>
+                          )}
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{notif.message}</p>
+                          <p className="text-[10px] text-gray-400 mt-1.5">{formatNotificationTime(notif)}</p>
+                        </div>
+                        {!isRead && <div className="w-2 h-2 bg-primary-500 rounded-full flex-shrink-0 mt-1" />}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </section>
 

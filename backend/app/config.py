@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # Engagement Thresholds
     attendance_threshold: float = 60.0
     frame_interval_seconds: int = 5
-    attendance_retention_hours: int = 24
+    attendance_retention_hours: int = 0
 
     class Config:
         env_file = ".env"

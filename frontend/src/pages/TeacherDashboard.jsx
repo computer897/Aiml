@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Video, BarChart3, Users, Clock, Upload, FileText,
-  Bell, ChevronRight, BookOpen, Play, AlertCircle
+  Bell, ChevronRight, BookOpen, Play, AlertCircle, RefreshCw,
+  Trash2, Radio
 } from 'lucide-react'
 import { classAPI, attendanceAPI } from '../services/api'
 import { notifyClassEvent, notifySuccess } from '../services/notifications'
@@ -26,10 +27,168 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
   const [activeClass, setActiveClass] = useState(null)
   const [attendanceData, setAttendanceData] = useState([])
   const [attendanceSessionId, setAttendanceSessionId] = useState(null)
+  const [attendanceHistory, setAttendanceHistory] = useState([])
+  const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const [attendanceLoading, setAttendanceLoading] = useState(false)
+  const [liveEngagement, setLiveEngagement] = useState(null)
+  const [liveError, setLiveError] = useState(null)
   const [announcements, setAnnouncements] = useState([])
   const [loading, setLoading] = useState(false)
 
+  const hydrateAttendanceData = async (classInfo, { preferredSessionId = null, refreshHistory = true } = {}) => {
+    if (!classInfo) return
+    setAttendanceLoading(true)
+    try {
+      let historyList = attendanceHistory
+      if (refreshHistory) {
+        historyList = await attendanceAPI.listReports(classInfo.class_id)
+        setAttendanceHistory(historyList)
+      }
+
+      let sessionToLoad = preferredSessionId
+      if (sessionToLoad && refreshHistory) {
+        const stillExists = historyList.some(summary => summary.session_id === sessionToLoad)
+        if (!stillExists) {
+          sessionToLoad = null
+        }
+      }
+      if (!sessionToLoad) {
+        sessionToLoad = historyList[0]?.session_id || null
+      }
+      if (!sessionToLoad && classInfo.active_session_id) {
+        sessionToLoad = classInfo.active_session_id
+      }
+      let report
+
+      if (sessionToLoad) {
+        report = await attendanceAPI.getReport(classInfo.class_id, sessionToLoad)
+      } else {
+        report = await attendanceAPI.getReport(classInfo.class_id)
+        if (!sessionToLoad && report.session_id) {
+          sessionToLoad = report.session_id
+        }
+      }
+
+      setAttendanceData(report.attendance_records || [])
+      const resolvedSession = report.session_id || sessionToLoad || classInfo.active_session_id || null
+      setAttendanceSessionId(resolvedSession)
+      setSelectedSessionId(resolvedSession)
+    } catch (error) {
+      console.error('Failed to load attendance report:', error)
+      setAttendanceData([])
+      setAttendanceSessionId(null)
+      setSelectedSessionId(null)
+    } finally {
+      setAttendanceLoading(false)
+    }
+  }
+
+  const loadReportForSession = async (sessionId) => {
+    if (!activeClass || !sessionId) return
+    setAttendanceLoading(true)
+    try {
+      const report = await attendanceAPI.getReport(activeClass.class_id, sessionId)
+      setAttendanceData(report.attendance_records || [])
+      const resolvedSession = report.session_id || sessionId
+      setAttendanceSessionId(resolvedSession)
+      setSelectedSessionId(resolvedSession)
+    } catch (error) {
+      alert(error.message || 'Failed to load attendance report')
+    } finally {
+      setAttendanceLoading(false)
+    }
+  }
+
+  const handleSessionChange = async (sessionId) => {
+    if (!activeClass) return
+    if (!sessionId) {
+      await hydrateAttendanceData(activeClass, { preferredSessionId: null, refreshHistory: true })
+      return
+    }
+    await loadReportForSession(sessionId)
+  }
+
+  const handleSelectClassForAttendance = async (classId) => {
+    const selected = classes.find(cls => cls.class_id === classId)
+    if (!selected) return
+    setActiveClass(selected)
+    await hydrateAttendanceData(selected, { preferredSessionId: null, refreshHistory: true })
+  }
+
+  const handleRefreshAttendance = async () => {
+    if (!activeClass) return
+    await hydrateAttendanceData(activeClass, { preferredSessionId: selectedSessionId, refreshHistory: true })
+  }
+
+  const handleDeleteReport = async (sessionId) => {
+    if (!activeClass || !sessionId) return
+    if (!window.confirm('Delete this attendance report? This action cannot be undone.')) return
+    try {
+      await attendanceAPI.deleteReport(activeClass.class_id, sessionId)
+      const stillSelected = sessionId === selectedSessionId ? null : selectedSessionId
+      await hydrateAttendanceData(activeClass, { preferredSessionId: stillSelected, refreshHistory: true })
+    } catch (error) {
+      alert(error.message || 'Failed to delete attendance report')
+    }
+  }
+
+  const formatSessionLabel = (summary) => {
+    if (!summary) return 'Latest / Live'
+    const endedAt = summary.ended_at ? new Date(summary.ended_at) : null
+    const dateLabel = endedAt
+      ? endedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      : summary.class_date || 'Session'
+    const timeLabel = endedAt
+      ? endedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : ''
+    const attendanceRatio = summary.total_students > 0
+      ? `${summary.present_count}/${summary.total_students} present`
+      : 'No data'
+    return `${dateLabel}${timeLabel ? ` · ${timeLabel}` : ''} (${attendanceRatio})`
+  }
+
+  const formatDurationMinutes = (seconds) => {
+    if (!seconds || seconds <= 0) return '—'
+    return `${Math.max(1, Math.round(seconds / 60))} min`
+  }
+
   useEffect(() => { loadTeacherData() }, [])
+
+  useEffect(() => {
+    const classId = activeClass?.class_id
+    if (!classId || !activeClass?.is_active) {
+      setLiveEngagement(null)
+      setLiveError(null)
+      return
+    }
+
+    let cancelled = false
+
+    const fetchLive = async () => {
+      try {
+        const live = await attendanceAPI.getLive(classId)
+        if (!cancelled) {
+          setLiveEngagement({
+            ...live,
+            updatedAt: new Date().toISOString(),
+          })
+          setLiveError(null)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLiveError(error.message || 'Unable to fetch live engagement')
+        }
+      }
+    }
+
+    fetchLive()
+    const intervalId = setInterval(fetchLive, 5000)
+
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [activeClass?.class_id, activeClass?.is_active])
 
   const loadTeacherData = async () => {
     try {
@@ -37,21 +196,15 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
       const createdClasses = await classAPI.getTeacherClasses()
       setClasses(createdClasses)
       if (createdClasses.length > 0) {
-        let selectedClass = createdClasses[0]
-        let selectedReport = await attendanceAPI.getReport(createdClasses[0].class_id)
-
-        for (const cls of createdClasses) {
-          const report = await attendanceAPI.getReport(cls.class_id)
-          if ((report.attendance_records || []).length > 0) {
-            selectedClass = cls
-            selectedReport = report
-            break
-          }
-        }
-
-        setAttendanceData(selectedReport.attendance_records || [])
+        const selectedClass = createdClasses.find(cls => cls.is_active) || createdClasses[0]
         setActiveClass(selectedClass)
-        setAttendanceSessionId(selectedReport.session_id || null)
+        await hydrateAttendanceData(selectedClass, { preferredSessionId: null, refreshHistory: true })
+      } else {
+        setActiveClass(null)
+        setAttendanceData([])
+        setAttendanceSessionId(null)
+        setAttendanceHistory([])
+        setSelectedSessionId(null)
       }
       // Load announcements from localStorage
       const storedAnnouncements = localStorage.getItem(ANNOUNCEMENTS_STORAGE_KEY)
@@ -309,8 +462,148 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                         <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-primary-500 transition" />
                       </div>
                     </div>
-                  ))}
-                </div>
+
+                          <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+                            <div className="flex flex-col sm:flex-row gap-3 flex-1">
+                              <div className="flex flex-col flex-1 min-w-[180px]">
+                                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1">Class</label>
+                                <select
+                                  value={activeClass?.class_id || ''}
+                                  onChange={(e) => handleSelectClassForAttendance(e.target.value)}
+                                  className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200"
+                                >
+                                  {classes.length === 0 && <option value="">No classes</option>}
+                                  {classes.map((cls) => (
+                                    <option key={cls.class_id} value={cls.class_id}>{cls.title}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="flex flex-col flex-1 min-w-[200px]">
+                                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1">Attendance Session</label>
+                                <select
+                                  value={selectedSessionId || ''}
+                                  onChange={(e) => handleSessionChange(e.target.value)}
+                                  className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200"
+                                >
+                                  <option value="">Latest / Live</option>
+                                  {attendanceHistory.map((summary) => (
+                                    <option key={summary.session_id} value={summary.session_id}>
+                                      {formatSessionLabel(summary)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={handleRefreshAttendance}
+                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 rounded-lg hover:bg-primary-100 dark:hover:bg-primary-900/50 transition"
+                              >
+                                <RefreshCw className="w-4 h-4" /> Refresh
+                              </button>
+                              {selectedSessionId && (
+                                <button
+                                  onClick={() => handleDeleteReport(selectedSessionId)}
+                                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition"
+                                >
+                                  <Trash2 className="w-4 h-4" /> Delete
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {activeClass?.is_active && (
+                            <div className="mb-4 border border-gray-100 dark:border-gray-800 rounded-xl p-4 bg-gray-50 dark:bg-gray-900/40">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
+                                  <Radio className="w-4 h-4 text-green-500" /> Live Engagement Snapshot
+                                </div>
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  {liveEngagement?.updatedAt
+                                    ? `Updated ${new Date(liveEngagement.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+                                    : liveError || 'Waiting for student signals'}
+                                </span>
+                              </div>
+                              {(liveEngagement?.students || []).length === 0 ? (
+                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                  {liveError || 'No engagement data yet. Students will appear once their browsers send presence metadata.'}
+                                </p>
+                              ) : (
+                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                  {(liveEngagement?.students || []).map((student) => {
+                                    const engaged = student.face_detected && student.looking_at_screen
+                                    const seen = student.face_detected
+                                    const dotColor = engaged
+                                      ? 'bg-green-400'
+                                      : seen
+                                      ? 'bg-amber-400'
+                                      : 'bg-gray-400'
+                                    return (
+                                      <div key={student.student_id} className="flex items-center justify-between py-1 px-2 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
+                                        <div className="flex items-center gap-2">
+                                          <span className={`w-2 h-2 rounded-full ${dotColor}`}></span>
+                                          <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{student.student_name}</span>
+                                        </div>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                                          {Math.round(student.engagement_percentage || 0)}%
+                                        </span>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <AttendanceTable
+                            attendanceData={attendanceData}
+                            classId={activeClass?.class_id}
+                            sessionId={attendanceSessionId}
+                            loading={attendanceLoading}
+                          />
+
+                          {attendanceHistory.length > 0 && (
+                            <div className="mt-5 border border-gray-100 dark:border-gray-800 rounded-2xl p-4">
+                              <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Stored Reports</h3>
+                                <button
+                                  onClick={handleRefreshAttendance}
+                                  className="text-xs text-primary-600 dark:text-primary-400 font-semibold flex items-center gap-1"
+                                >
+                                  <RefreshCw className="w-3 h-3" /> Refresh
+                                </button>
+                              </div>
+                              <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                                {attendanceHistory.slice(0, 5).map((summary) => {
+                                  const engagementAvg = Math.round(summary.average_engagement_percentage || 0)
+                                  return (
+                                    <div key={summary.session_id} className="py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-900 dark:text-white">{formatSessionLabel(summary)}</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                          Duration {formatDurationMinutes(summary.class_duration_seconds)} · Avg engagement {engagementAvg}%
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => handleSessionChange(summary.session_id)}
+                                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+                                        >
+                                          View
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteReport(summary.session_id)}
+                                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition"
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
               </section>
             )}
 

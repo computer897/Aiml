@@ -256,6 +256,21 @@ class AttendanceReport(BaseModel):
     attendance_records: List[dict]
 
 
+class AttendanceReportSummary(BaseModel):
+    """Summary metadata for stored attendance reports."""
+    class_id: str
+    session_id: str
+    class_title: Optional[str] = None
+    class_date: Optional[str] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    class_duration_seconds: int = 0
+    total_students: int = 0
+    present_count: int = 0
+    absent_count: int = 0
+    average_engagement_percentage: float = 0.0
+
+
 class JoinRequestStatus(str, Enum):
     """Join request status enumeration."""
     PENDING = "pending"
@@ -337,3 +352,33 @@ class AnnouncementCreate(BaseModel):
     title: str
     content: str
     priority: str = "normal"
+
+
+class ClassNotification(BaseModel):
+    """Notification sent to students when a class is scheduled."""
+    id: Optional[str] = Field(None, alias="_id")
+    class_id: str
+    class_title: Optional[str] = None
+    teacher_id: str
+    teacher_name: Optional[str] = None
+    title: str
+    message: str
+    type: str = Field(default="reminder")
+    schedule_time: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+
+
+class ClassNotificationResponse(BaseModel):
+    """Response model for student-facing class notifications."""
+    id: str
+    class_id: str
+    class_title: Optional[str] = None
+    teacher_name: Optional[str] = None
+    title: str
+    message: str
+    type: str
+    schedule_time: Optional[datetime] = None
+    created_at: datetime

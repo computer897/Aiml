@@ -18,6 +18,7 @@ from app.models import (
     AttendanceEndRequest,
     AttendanceMetadata,
     AttendanceReport,
+    AttendanceReportSummary,
     AttendanceStart,
     AttendanceStatus,
     EngagementUpdate,
@@ -477,6 +478,77 @@ async def get_attendance_report(
     return report
 
 
+@router.get("/reports/{class_id}", response_model=List[AttendanceReportSummary])
+async def list_attendance_reports(
+    class_id: str,
+    limit: int = 25,
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """List finalized attendance reports for a class, newest first."""
+    class_doc = await db.classes.find_one({"class_id": class_id})
+
+    if not class_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+
+    if class_doc["teacher_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view these reports"
+        )
+
+    attendance_manager = get_attendance_manager()
+    safe_limit = max(1, min(limit, 100))
+    summaries = await attendance_manager.list_class_reports(
+        class_id=class_id,
+        db=db,
+        limit=safe_limit,
+    )
+    return summaries
+
+
+@router.delete("/report/{class_id}/{session_id}", response_model=dict)
+async def delete_attendance_report(
+    class_id: str,
+    session_id: str,
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """Delete a stored attendance report for a class session."""
+    class_doc = await db.classes.find_one({"class_id": class_id})
+
+    if not class_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+
+    if class_doc["teacher_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this report"
+        )
+
+    attendance_manager = get_attendance_manager()
+    deleted = await attendance_manager.delete_class_report(class_id, session_id, db)
+
+    if deleted == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Attendance report not found"
+        )
+
+    return {
+        "message": "Attendance report deleted",
+        "class_id": class_id,
+        "session_id": session_id,
+        "deleted_count": deleted,
+    }
+
+
 @router.get("/student/{student_id}", response_model=List[dict])
 async def get_student_attendance_history(
     student_id: str,
@@ -508,12 +580,11 @@ async def get_student_attendance_history(
     attendance_manager = get_attendance_manager()
     await attendance_manager.ensure_indexes(db)
 
-    cursor = db.attendance_reports.find(
-        {
-            "student_id": student_id,
-            "expires_at": {"$gt": datetime.utcnow()},
-        }
-    ).sort("created_at", -1)
+    query = {"student_id": student_id}
+    if settings.attendance_retention_hours > 0:
+        query["expires_at"] = {"$gt": datetime.utcnow()}
+
+    cursor = db.attendance_reports.find(query).sort("created_at", -1)
     records = await cursor.to_list(length=100)
     
     # Format response

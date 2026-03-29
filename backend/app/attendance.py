@@ -22,6 +22,16 @@ class AttendanceManager:
         self._indexes_ready = False
         logger.info("✓ Attendance manager initialized")
 
+    def _should_enforce_retention(self) -> bool:
+        """Return True when attendance reports should expire automatically."""
+        return settings.attendance_retention_hours > 0
+
+    def _retention_filter(self) -> Dict[str, Any]:
+        """Filter used to fetch only non-expired attendance reports."""
+        if self._should_enforce_retention():
+            return {"expires_at": {"$gt": datetime.utcnow()}}
+        return {}
+
     async def ensure_indexes(self, db) -> None:
         """Create MongoDB indexes needed for report lookup and TTL cleanup."""
         if self._indexes_ready:
@@ -40,11 +50,19 @@ class AttendanceManager:
             [("class_id", 1), ("created_at", -1)],
             name="attendance_report_class_created_idx"
         )
-        await db.attendance_reports.create_index(
-            "expires_at",
-            expireAfterSeconds=0,
-            name="attendance_report_ttl_idx"
-        )
+        if self._should_enforce_retention():
+            await db.attendance_reports.create_index(
+                "expires_at",
+                expireAfterSeconds=0,
+                name="attendance_report_ttl_idx"
+            )
+        else:
+            try:
+                indexes = await db.attendance_reports.index_information()
+                if "attendance_report_ttl_idx" in indexes:
+                    await db.attendance_reports.drop_index("attendance_report_ttl_idx")
+            except Exception as exc:
+                logger.warning("Unable to drop TTL index for attendance reports: %s", exc)
         self._indexes_ready = True
 
     def _format_duration_label(self, total_seconds: int) -> str:
@@ -435,7 +453,11 @@ class AttendanceManager:
 
         rows = []
         final_documents = []
-        expires_at = ended_at + timedelta(hours=settings.attendance_retention_hours)
+        expires_at = (
+            ended_at + timedelta(hours=settings.attendance_retention_hours)
+            if self._should_enforce_retention()
+            else None
+        )
 
         for record in attendance_records:
             engagement_seconds = int(round(record.get("engagement_duration_seconds", 0) or 0))
@@ -456,9 +478,11 @@ class AttendanceManager:
             }, class_duration_seconds=class_duration_seconds)
             rows.append(final_row)
 
-            final_documents.append({
+            doc = {
                 "class_id": class_doc["class_id"],
                 "session_id": session_id,
+                "class_title": class_doc.get("title"),
+                "teacher_name": class_doc.get("teacher_name"),
                 "student_id": final_row["student_id"],
                 "student_name": final_row["student_name"],
                 "section": final_row["section"],
@@ -470,8 +494,12 @@ class AttendanceManager:
                 "started_at": session_started_at,
                 "ended_at": ended_at,
                 "created_at": datetime.utcnow(),
-                "expires_at": expires_at,
-            })
+            }
+
+            if expires_at:
+                doc["expires_at"] = expires_at
+
+            final_documents.append(doc)
 
             await db.attendance.update_one(
                 {"_id": record["_id"]},
@@ -505,11 +533,15 @@ class AttendanceManager:
     ) -> Optional[AttendanceReport]:
         await self.ensure_indexes(db)
 
-        cursor = db.attendance_reports.find({
+        query = {
             "class_id": class_doc["class_id"],
             "session_id": session_id,
-            "expires_at": {"$gt": datetime.utcnow()},
-        })
+        }
+        retention_filter = self._retention_filter()
+        if retention_filter:
+            query.update(retention_filter)
+
+        cursor = db.attendance_reports.find(query)
         records = await cursor.to_list(length=None)
 
         if not records:
@@ -536,11 +568,13 @@ class AttendanceManager:
     ) -> Optional[AttendanceReport]:
         await self.ensure_indexes(db)
 
+        query = {"class_id": class_doc["class_id"]}
+        retention_filter = self._retention_filter()
+        if retention_filter:
+            query.update(retention_filter)
+
         latest_record = await db.attendance_reports.find_one(
-            {
-                "class_id": class_doc["class_id"],
-                "expires_at": {"$gt": datetime.utcnow()},
-            },
+            query,
             sort=[("created_at", -1)]
         )
 
@@ -582,6 +616,93 @@ class AttendanceManager:
             return finalized_report
 
         return await self.build_live_class_report(class_doc, session_id, db)
+
+    async def list_class_reports(
+        self,
+        class_id: str,
+        db,
+        limit: int = 25
+    ) -> List[dict]:
+        """Return summarized attendance reports for a class."""
+        await self.ensure_indexes(db)
+
+        match_stage = {"class_id": class_id}
+        retention_filter = self._retention_filter()
+        if retention_filter:
+            match_stage.update(retention_filter)
+
+        pipeline = [
+            {"$match": match_stage},
+            {
+                "$group": {
+                    "_id": "$session_id",
+                    "session_id": {"$first": "$session_id"},
+                    "class_id": {"$first": "$class_id"},
+                    "class_title": {"$first": "$class_title"},
+                    "class_date": {"$first": "$class_date"},
+                    "started_at": {"$min": "$started_at"},
+                    "ended_at": {"$max": "$ended_at"},
+                    "class_duration_seconds": {"$max": "$class_duration_seconds"},
+                    "total_students": {"$sum": 1},
+                    "present_count": {
+                        "$sum": {
+                            "$cond": [
+                                {"$eq": ["$attendance_status", AttendanceStatus.PRESENT.value]},
+                                1,
+                                0,
+                            ]
+                        }
+                    },
+                    "absent_count": {
+                        "$sum": {
+                            "$cond": [
+                                {"$eq": ["$attendance_status", AttendanceStatus.ABSENT.value]},
+                                1,
+                                0,
+                            ]
+                        }
+                    },
+                    "average_engagement": {"$avg": "$engagement_ratio"},
+                }
+            },
+            {"$sort": {"ended_at": -1}},
+            {"$limit": limit},
+        ]
+
+        cursor = db.attendance_reports.aggregate(pipeline)
+        docs = await cursor.to_list(length=limit)
+
+        summaries = []
+        for doc in docs:
+            summaries.append({
+                "class_id": doc.get("class_id", class_id),
+                "session_id": doc.get("session_id"),
+                "class_title": doc.get("class_title"),
+                "class_date": doc.get("class_date"),
+                "started_at": doc.get("started_at"),
+                "ended_at": doc.get("ended_at"),
+                "class_duration_seconds": int(doc.get("class_duration_seconds") or 0),
+                "total_students": int(doc.get("total_students") or 0),
+                "present_count": int(doc.get("present_count") or 0),
+                "absent_count": int(doc.get("absent_count") or 0),
+                "average_engagement_percentage": round((doc.get("average_engagement") or 0) * 100, 2),
+            })
+
+        return summaries
+
+    async def delete_class_report(
+        self,
+        class_id: str,
+        session_id: str,
+        db
+    ) -> int:
+        """Delete all attendance report documents for a class session."""
+        await self.ensure_indexes(db)
+        result = await db.attendance_reports.delete_many({
+            "class_id": class_id,
+            "session_id": session_id,
+        })
+        return result.deleted_count
 
 
 # Global attendance manager instance

@@ -6,7 +6,8 @@ Handles class creation, retrieval, and student enrollment.
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Optional
-from app.models import ClassCreate, ClassResponse, Class, User
+from app.attendance import get_attendance_manager
+from app.models import ClassCreate, ClassResponse, Class, User, ClassNotificationResponse
 from app.auth import get_current_teacher, get_current_student, get_current_user
 from app.database import get_db
 from datetime import datetime
@@ -78,6 +79,29 @@ async def create_class(
     result = await db.classes.insert_one(class_doc)
     class_doc["id"] = str(result.inserted_id)
     
+    # Automatically create a reminder notification for enrolled students
+    try:
+        schedule_time = class_data.schedule_time
+        if schedule_time:
+            time_label = schedule_time.strftime("%b %d, %Y at %I:%M %p")
+        else:
+            time_label = "soon"
+
+        notification_doc = {
+            "class_id": class_data.class_id,
+            "class_title": class_data.title,
+            "teacher_id": current_user.id,
+            "teacher_name": current_user.name,
+            "title": f"New Class Scheduled: {class_data.title}",
+            "message": f"{class_data.title} is scheduled for {time_label}.", 
+            "type": "reminder",
+            "schedule_time": schedule_time,
+            "created_at": datetime.utcnow()
+        }
+        await db.class_notifications.insert_one(notification_doc)
+    except Exception as exc:
+        logger.warning(f"Unable to create notification for class {class_data.class_id}: {exc}")
+
     logger.info(f"✓ Class created: {class_data.class_id} by teacher {current_user.name}")
     
     return ClassResponse(**class_doc)
@@ -137,6 +161,40 @@ async def get_student_classes(
     
     logger.info(f"✓ Retrieved {len(classes)} classes for student {current_user.name}")
     return classes
+
+
+@router.get("/student/notifications", response_model=List[ClassNotificationResponse])
+async def get_student_notifications(
+    current_user: User = Depends(get_current_student),
+    db=Depends(get_db)
+):
+    """Return scheduled class notifications for the student's enrolled classes."""
+    cursor = db.classes.find({"enrolled_students": current_user.id})
+    class_map = {}
+    async for class_doc in cursor:
+        class_map[class_doc["class_id"]] = {
+            "title": class_doc.get("title"),
+            "teacher_name": class_doc.get("teacher_name"),
+        }
+
+    if not class_map:
+        return []
+
+    notifications_cursor = db.class_notifications.find(
+        {"class_id": {"$in": list(class_map.keys())}}
+    ).sort("created_at", -1).limit(100)
+
+    notifications: List[ClassNotificationResponse] = []
+    async for doc in notifications_cursor:
+        doc_id = str(doc.get("_id"))
+        doc.pop("_id", None)
+        class_id = doc.get("class_id")
+        doc["id"] = doc_id
+        doc["class_title"] = doc.get("class_title") or class_map.get(class_id, {}).get("title")
+        doc["teacher_name"] = doc.get("teacher_name") or class_map.get(class_id, {}).get("teacher_name")
+        notifications.append(ClassNotificationResponse(**doc))
+
+    return notifications
 
 
 @router.get("/student/available", response_model=List[ClassResponse])
@@ -397,7 +455,23 @@ async def deactivate_class(
         )
     
     ended_at = datetime.utcnow()
-    
+    attendance_report = None
+
+    attendance_manager = get_attendance_manager()
+    session_id = class_doc.get("active_session_id")
+
+    if session_id:
+        try:
+            attendance_report = await attendance_manager.finalize_class_attendance(
+                class_doc=class_doc,
+                session_id=session_id,
+                ended_at=ended_at,
+                db=db,
+            )
+        except Exception as exc:
+            logger.error("Failed to finalize attendance for %s (%s): %s", class_id, session_id, exc)
+            attendance_report = None
+
     await db.classes.update_one(
         {"_id": class_doc["_id"]},
         {"$set": {
@@ -414,7 +488,8 @@ async def deactivate_class(
     return {
         "message": "Class ended",
         "class_id": class_id,
-        "ended_at": ended_at.isoformat()
+        "ended_at": ended_at.isoformat(),
+        "attendance_report": attendance_report.model_dump() if attendance_report else None
     }
 
 
