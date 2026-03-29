@@ -1,4 +1,4 @@
-import { X, Download, Users, CheckCircle, AlertCircle, Clock, Percent } from 'lucide-react'
+import { X, Download, Users, CheckCircle, AlertCircle, Percent } from 'lucide-react'
 import { attendanceAPI } from '../services/api'
 
 /**
@@ -22,10 +22,6 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
   const presentCount = report.filter(r => r.attendance_status === 'present').length
   const absentCount = report.filter(r => r.attendance_status === 'absent').length
   const attendanceRate = total > 0 ? Math.round((presentCount / total) * 100) : 0
-  const avgEngagement = total > 0
-    ? Math.round(report.reduce((s, r) => s + (r.engagement_percentage || 0), 0) / total)
-    : 0
-
   // ── Engagement badge styling ──
   const engagementStyle = (status) => {
     switch (status) {
@@ -122,9 +118,8 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
               <thead>
                 <tr className="text-gray-400 text-xs uppercase tracking-wide border-b border-gray-700">
                   <th className="text-left pb-3 pr-4">Student Name</th>
-                  <th className="text-left pb-3 pr-4">Section</th>
                   <th className="text-left pb-3 pr-4">Engagement Time</th>
-                  <th className="text-left pb-3 pr-4">Engagement %</th>
+                  <th className="text-left pb-3 pr-4">Attendance %</th>
                   <th className="text-left pb-3">Status</th>
                 </tr>
               </thead>
@@ -142,25 +137,14 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
                       </div>
                     </td>
                     <td className="py-3 pr-4 text-gray-300">
-                      {entry.section || 'N/A'}
-                    </td>
-                    <td className="py-3 pr-4 text-gray-300">
                       {entry.engagement_time_label || '0s'}
                     </td>
-                    <td className="py-3 pr-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${(entry.engagement_percentage || 0) >= 70 ? 'bg-green-500' : 'bg-red-500'}`}
-                            style={{ width: `${Math.min(entry.engagement_percentage || 0, 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-gray-300 text-xs">{Math.round(entry.engagement_percentage || 0)}%</span>
-                      </div>
+                    <td className="py-3 pr-4 text-gray-300 font-semibold">
+                      {Math.round(entry.engagement_percentage || 0)}%
                     </td>
                     <td className="py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${engagementStyle(entry.attendance_status)}`}>
-                        {(entry.attendance_status || 'absent').toUpperCase()}
+                        {(entry.attendance_status || 'absent').charAt(0).toUpperCase() + (entry.attendance_status || 'absent').slice(1)}
                       </span>
                     </td>
                   </tr>

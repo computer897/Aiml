@@ -102,15 +102,17 @@ class ConnectionManager:
         
         # Prepare message
         message = {
-            "type": "engagement_update",
+            "type": "engagement-update",
             "data": {
                 "student_id": engagement_update.student_id,
                 "student_name": engagement_update.student_name,
                 "is_face_detected": engagement_update.is_face_detected,
                 "is_looking_at_screen": engagement_update.is_looking_at_screen,
                 "engagement_percentage": engagement_update.engagement_percentage,
+                "is_present": engagement_update.is_face_detected,
                 "last_update": engagement_update.last_update.isoformat()
             },
+            "event": "engagement-update",
             "timestamp": datetime.utcnow().isoformat()
         }
         

@@ -42,13 +42,6 @@ function AttendanceTable({ attendanceData, classId, sessionId, loading = false }
     }
   }
 
-  const getEngagementColor = (score) => {
-    if (score >= 80) return 'text-green-600'
-    if (score >= 60) return 'text-yellow-600'
-    if (score > 0) return 'text-red-600'
-    return 'text-gray-400'
-  }
-
   const canDownload = Boolean(classId && sessionId && !loading)
 
   return (
@@ -90,23 +83,20 @@ function AttendanceTable({ attendanceData, classId, sessionId, loading = false }
                 Student Name
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Section
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Engagement Time
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Engagement
+                Attendance %
               </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {attendanceData.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-6 text-center text-sm text-gray-500">
+                <td colSpan={4} className="px-6 py-6 text-center text-sm text-gray-500">
                   {loading ? 'Loading latest attendance data…' : 'No attendance data recorded yet.'}
                 </td>
               </tr>
@@ -123,9 +113,6 @@ function AttendanceTable({ attendanceData, classId, sessionId, loading = false }
                       <span className="text-sm font-medium text-gray-900">{student.student_name}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {student.section || 'N/A'}
-                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(student.attendance_status)}`}>
                       {student.attendance_status.charAt(0).toUpperCase() + student.attendance_status.slice(1)}
@@ -134,26 +121,8 @@ function AttendanceTable({ attendanceData, classId, sessionId, loading = false }
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                     {student.engagement_time_label}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm font-semibold ${getEngagementColor(student.engagement_percentage)}`}>
-                        {Math.round(student.engagement_percentage)}%
-                      </span>
-                      <div className="w-16 bg-gray-200 rounded-full h-1.5">
-                        <div
-                          className={`h-1.5 rounded-full ${
-                            student.engagement_percentage >= 80
-                              ? 'bg-green-500'
-                              : student.engagement_percentage >= 60
-                              ? 'bg-yellow-500'
-                              : student.engagement_percentage > 0
-                              ? 'bg-red-500'
-                              : 'bg-gray-400'
-                          }`}
-                          style={{ width: `${student.engagement_percentage}%` }}
-                        />
-                      </div>
-                    </div>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-700">
+                    {Math.round(student.engagement_percentage)}%
                   </td>
                 </tr>
               ))

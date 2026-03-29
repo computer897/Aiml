@@ -235,17 +235,9 @@ async def process_metadata(
             detail="Attendance session not found"
         )
     
-    # Calculate engagement time increment
+    # Fixed-interval engagement sampling: every valid sample adds 5 seconds.
     current_time = metadata.timestamp
-    last_frame_time = attendance_doc.get("last_frame_timestamp")
-    time_increment = 0
-    
-    if last_frame_time:
-        time_diff = (current_time - last_frame_time).total_seconds()
-        # Only count time if face is detected
-        # Cap at reasonable interval to prevent manipulation
-        if metadata.face_detected and time_diff > 0:
-            time_increment = min(time_diff, settings.frame_interval_seconds)
+    time_increment = settings.frame_interval_seconds if metadata.face_detected else 0
     
     # Update engagement metrics
     new_engagement_seconds = attendance_doc["engagement_duration_seconds"] + time_increment
@@ -271,7 +263,16 @@ async def process_metadata(
     
     await db.attendance.update_one(
         {"_id": attendance_doc["_id"]},
-        {"$set": update_data}
+        {
+            "$set": update_data,
+            "$push": {
+                "engagement_logs": {
+                    "timestamp": current_time,
+                    "is_present": metadata.face_detected,
+                    "increment_seconds": time_increment,
+                }
+            },
+        }
     )
     
     # Broadcast engagement update via WebSocket (for teacher dashboard)
@@ -828,22 +829,18 @@ async def export_attendance(
     # Header
     writer.writerow([
         "Name",
-        "Section",
         "Engagement Time",
+        "Attendance %",
         "Status",
-        "Engagement Percentage",
-        "Class Date"
     ])
     
     # Data rows
     for record in report.attendance_records:
         writer.writerow([
             record.get("student_name", "Unknown"),
-            record.get("section", "N/A"),
             record.get("engagement_time_label", "0s"),
-            record.get("attendance_status", "unknown").upper(),
-            round(record.get("engagement_percentage", 0), 2),
-            record.get("class_date", "")
+            f"{round(record.get('engagement_percentage', 0), 2)}%",
+            str(record.get("attendance_status", "unknown")).title(),
         ])
     
     # Return CSV response

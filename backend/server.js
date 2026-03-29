@@ -555,10 +555,9 @@ io.on("connection", socket => {
     }
 
     // Broadcast to everyone in the room except the sender.
-    // Teacher's onStudentEngagement callback updates the dashboard;
-    // other students' frontends ignore this event.
+    // Required live event name: engagement-update.
     const joinTime = attendanceData[roomId]?.[socket.id]?.joinTime || null;
-    socket.to(roomId).emit("student-engagement", {
+    const engagementPayload = {
       socketId:    socket.id,
       studentId:   studentId || socket.userId,
       studentName: studentName || socket.userName,
@@ -569,7 +568,11 @@ io.on("connection", socket => {
       joinTimeLabel: fmtTime(joinTime),
       engagementSeconds: attendanceData[roomId]?.[socket.id]?.engagementSeconds || 0,
       timestamp:   sampleTime.toISOString()
-    });
+    };
+
+    socket.to(roomId).emit("engagement-update", engagementPayload);
+    // Legacy alias for older clients.
+    socket.to(roomId).emit("student-engagement", engagementPayload);
     console.log(`[engagement-update] ${socket.userName}: ${status} in room ${roomId}`);
   });
 

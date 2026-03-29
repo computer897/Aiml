@@ -6,7 +6,7 @@ import { loadFaceDetectionModels, detectFaces } from '../services/faceDetection'
  *
  * Runs face detection every 5 seconds and emits engagement status to the
  * signaling server via the WebRTC manager so the teacher dashboard receives
- * real-time student engagement data.
+ * real-time student engagement data through the engagement-update event.
  *
  * Logic:
  *   face detected (single)   → engagement = "attentive"
@@ -97,7 +97,7 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
     setEngagementStatus(status)
     const isPresent = status !== 'not-detected'
 
-    // Emit to signaling server → forwarded to teacher as 'student-engagement'
+    // Emit to signaling server → forwarded to teacher as 'engagement-update'
     // cameraOn is always true for students since the physical camera stays on
     // even when visibility is toggled off
     webrtcRef.current.sendEngagementUpdate(userId, status, userName, true, isPresent, Date.now())

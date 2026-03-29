@@ -1280,18 +1280,18 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         setTimeout(() => setScreenShareBlockedMsg(''), 4000)
       }
 
-      // Teacher receives real-time engagement via socket.io (supplements WebSocket backend path)
-      rtc.callbacks.onStudentEngagement = (data) => {
+      // Teacher receives real-time engagement via socket.io.
+      rtc.callbacks.onEngagementUpdate = (data) => {
         if (user?.role !== 'teacher') return
         setStudents(prev => {
           const idx = prev.findIndex(s => s.id === data.studentId)
+          const isPresent = data.isPresent !== false && data.status !== 'not-detected'
           const entry = {
             id: data.studentId || data.socketId,
             socketId: data.socketId,
             name: data.studentName || 'Student',
-            engagement: data.status === 'attentive' ? 100 : (data.status === 'distracted' ? 40 : 0),
-            status: data.status === 'attentive' ? 'active' : (data.status === 'distracted' ? 'distracted' : 'inactive'),
-            lookingAtScreen: data.status === 'attentive',
+            isPresent,
+            status: isPresent ? 'active' : 'inactive',
             cameraOn: data.cameraOn !== false,
             // Preserve existing joinTime or use server-provided one
             joinTime: data.joinTimeLabel || data.joinTime || null,
@@ -1661,15 +1661,16 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       const ws = createWebSocket(classData.class_id)
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data)
-        if (msg.type === 'engagement_update' && msg.data) {
+        if ((msg.type === 'engagement-update' || msg.type === 'engagement_update') && msg.data) {
           const d = msg.data
           setStudents(prev => {
             const idx = prev.findIndex(s => s.id === d.student_id)
+            const isPresent = d.is_present !== false && d.is_face_detected !== false
             const entry = {
               id: d.student_id,
               name: d.student_name || 'Student',
-              engagement: Math.round(d.engagement_percentage || 0),
-              status: d.is_face_detected ? 'active' : 'inactive',
+              isPresent,
+              status: isPresent ? 'active' : 'inactive',
               lookingAtScreen: d.is_looking_at_screen,
             }
             if (idx >= 0) {
@@ -1728,23 +1729,28 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       return
     }
 
-    try {
-      const report = await attendanceAPI.end({
-        classId: classData.class_id,
-        sessionId: activeSessionId,
-        endedAt: new Date().toISOString(),
-      })
-      setAttendanceReport(report)
-      setShowAttendanceReport(true)
-    } catch (error) {
-      alert(error.message || 'Failed to finalize attendance report')
-      return
-    }
-
     if (webrtcRef.current && typeof webrtcRef.current.endClass === 'function') {
       webrtcRef.current.endClass()
     }
-    try { await classAPI.deactivate(classData.class_id) } catch { /* ok */ }
+
+    try {
+      const deactivation = await classAPI.deactivate(classData.class_id)
+      const report = deactivation?.attendance_report
+      if (report) {
+        setAttendanceReport(report)
+        setShowAttendanceReport(true)
+      } else {
+        const fallback = await attendanceAPI.end({
+          classId: classData.class_id,
+          sessionId: activeSessionId,
+          endedAt: new Date().toISOString(),
+        })
+        setAttendanceReport(fallback)
+        setShowAttendanceReport(true)
+      }
+    } catch (error) {
+      alert(error.message || 'Failed to finalize attendance report')
+    }
   }
 
   const _doLeaveClass = async () => {

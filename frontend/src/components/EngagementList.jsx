@@ -1,49 +1,12 @@
-import { AlertCircle, CheckCircle, Radio, Download, Users, Eye, EyeOff, AlertTriangle, Video, VideoOff, Clock } from 'lucide-react'
+import { Radio, Download, Users } from 'lucide-react'
 import { attendanceAPI } from '../services/api'
 
 function EngagementList({ students, onSelectStudent, classId, sessionId }) {
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'active':
-        return 'border-green-500 bg-green-900/30'
-      case 'distracted':
-        return 'border-yellow-500 bg-yellow-900/30'
-      case 'inactive':
-      case 'absent':
-        return 'border-red-500 bg-red-900/30'
-      default:
-        return 'border-gray-600 bg-gray-800'
-    }
-  }
+  const sortedStudents = [...students].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 
-  const getEngagementColor = (engagement) => {
-    if (engagement >= 80) return 'text-green-400'
-    if (engagement >= 50) return 'text-yellow-400'
-    if (engagement > 0) return 'text-red-400'
-    return 'text-gray-500'
-  }
-
-  // Map internal status to human-readable engagement label
-  const getEngagementLabel = (student) => {
-    if (student.status === 'active') return 'Attentive'
-    if (student.status === 'distracted') return 'Distracted'
-    return 'Not Detected'
-  }
-
-  const sortedStudents = [...students].sort((a, b) => {
-    if (a.status === 'distracted' && b.status !== 'distracted') return -1
-    if (a.status !== 'distracted' && b.status === 'distracted') return 1
-    return b.engagement - a.engagement
-  })
-
-  // Calculate summary stats
-  const totalStudents = students.length
-  const activeStudents = students.filter(s => s.status === 'active').length
-  const distractedStudents = students.filter(s => s.status === 'distracted').length
-  const inactiveStudents = students.filter(s => s.status === 'inactive' || s.status === 'absent').length
-  const avgEngagement = totalStudents > 0 
-    ? Math.round(students.reduce((sum, s) => sum + (s.engagement || 0), 0) / totalStudents)
-    : 0
+  const totalStudents = sortedStudents.length
+  const presentStudents = sortedStudents.filter((s) => s.isPresent !== false && s.status !== 'inactive').length
+  const absentStudents = totalStudents - presentStudents
 
   // Export attendance to CSV
   const handleExportCSV = async () => {
@@ -70,10 +33,9 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
 
   return (
     <div className="flex flex-col h-full bg-gray-800">
-      {/* Header */}
       <div className="p-4 border-b border-gray-700">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-white">Student Engagement</h3>
+          <h3 className="font-semibold text-white">Live Attendance</h3>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 px-2 py-1 bg-green-600/20 border border-green-600/40 rounded-full">
               <Radio className="w-3 h-3 text-green-400 animate-pulse" />
@@ -90,9 +52,8 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
             )}
           </div>
         </div>
-        
-        {/* Summary Stats */}
-        <div className="grid grid-cols-4 gap-2 mb-3">
+
+        <div className="grid grid-cols-3 gap-2 mb-3">
           <div className="bg-gray-700/50 rounded-lg p-2 text-center">
             <div className="flex items-center justify-center gap-1 mb-1">
               <Users className="w-3 h-3 text-primary-400" />
@@ -102,59 +63,28 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
           </div>
           <div className="bg-gray-700/50 rounded-lg p-2 text-center">
             <div className="w-2 h-2 bg-green-500 rounded-full mx-auto mb-1" />
-            <p className="text-green-400 text-sm font-bold">{activeStudents}</p>
-            <p className="text-gray-500 text-[10px]">Active</p>
-          </div>
-          <div className="bg-gray-700/50 rounded-lg p-2 text-center">
-            <div className="w-2 h-2 bg-yellow-500 rounded-full mx-auto mb-1" />
-            <p className="text-yellow-400 text-sm font-bold">{distractedStudents}</p>
-            <p className="text-gray-500 text-[10px]">Distracted</p>
+            <p className="text-green-400 text-sm font-bold">{presentStudents}</p>
+            <p className="text-gray-500 text-[10px]">Present</p>
           </div>
           <div className="bg-gray-700/50 rounded-lg p-2 text-center">
             <div className="w-2 h-2 bg-red-500 rounded-full mx-auto mb-1" />
-            <p className="text-red-400 text-sm font-bold">{inactiveStudents}</p>
-            <p className="text-gray-500 text-[10px]">Inactive</p>
+            <p className="text-red-400 text-sm font-bold">{absentStudents}</p>
+            <p className="text-gray-500 text-[10px]">Absent</p>
           </div>
         </div>
 
-        {/* Average Engagement */}
-        {totalStudents > 0 && (
-          <div className="bg-gray-700/30 rounded-lg p-2 mb-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-gray-400">Class Average</span>
-              <span className={`text-sm font-bold ${getEngagementColor(avgEngagement)}`}>
-                {avgEngagement}%
-              </span>
-            </div>
-            <div className="w-full bg-gray-700 rounded-full h-1.5">
-              <div
-                className={`h-1.5 rounded-full transition-all ${
-                  avgEngagement >= 80 ? 'bg-green-500' : avgEngagement >= 50 ? 'bg-yellow-500' : 'bg-red-500'
-                }`}
-                style={{ width: `${avgEngagement}%` }}
-              />
-            </div>
-          </div>
-        )}
-        
-        {/* Legend */}
         <div className="flex items-center gap-3 text-xs">
           <div className="flex items-center gap-1">
             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-            <span className="text-gray-400">Active</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-            <span className="text-gray-400">Distracted</span>
+            <span className="text-gray-400">Face detected</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-            <span className="text-gray-400">Inactive</span>
+            <span className="text-gray-400">Face not detected</span>
           </div>
         </div>
       </div>
 
-      {/* Students List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {sortedStudents.length === 0 ? (
           <div className="text-center py-8">
@@ -165,93 +95,26 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
           sortedStudents.map((student) => (
             <div
               key={student.id}
-              className={`border-l-4 rounded-lg p-3 transition cursor-pointer hover:bg-gray-700/50 ${getStatusColor(student.status)}`}
+              className="border border-gray-700 rounded-lg p-3 transition cursor-pointer hover:bg-gray-700/50"
               onClick={() => onSelectStudent && onSelectStudent(student)}
             >
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center">
                     <span className="text-white text-xs font-semibold">
                       {student.avatar || student.name?.split(' ').map(n => n[0]).join('') || '?'}
                     </span>
                   </div>
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full ${student.status === 'inactive' || student.status === 'absent' ? 'bg-red-500' : 'bg-green-500'}`}
-                    title={student.status === 'inactive' || student.status === 'absent' ? 'No face detected' : 'Face detected'}
-                  />
+                  <span className={`w-2.5 h-2.5 rounded-full ${student.isPresent !== false && student.status !== 'inactive' ? 'bg-green-500' : 'bg-red-500'}`} />
                   <span className="text-sm font-medium text-white">{student.name}</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  {/* Camera status badge */}
-                  <span title={student.cameraOn === false ? 'Camera OFF' : 'Camera ON'}
-                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${student.cameraOn === false ? 'bg-red-900/40 text-red-400' : 'bg-green-900/40 text-green-400'}`}>
-                    {student.cameraOn === false
-                      ? <><VideoOff className="w-3 h-3" /> OFF</>
-                      : <><Video className="w-3 h-3" /> ON</>}
-                  </span>
-                  {student.status === 'distracted' && (
-                    <AlertCircle className="w-4 h-4 text-yellow-400" />
-                  )}
-                  {student.status === 'active' && student.engagement >= 80 && (
-                    <CheckCircle className="w-4 h-4 text-green-400" />
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className={`text-xs font-semibold ${getEngagementColor(student.engagement)}`}>
-                  {student.engagement}% engaged
-                </span>
-                {/* Engagement status: Attentive / Not Detected / Distracted */}
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                  student.status === 'active' ? 'bg-green-900/40 text-green-400'
-                  : student.status === 'distracted' ? 'bg-yellow-900/40 text-yellow-400'
-                  : 'bg-gray-700 text-gray-400'
-                }`}>
-                  {getEngagementLabel(student)}
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${student.isPresent !== false && student.status !== 'inactive' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>
+                  {student.isPresent !== false && student.status !== 'inactive' ? 'Present' : 'Not Present'}
                 </span>
               </div>
 
-              {/* Progress Bar */}
-              <div className="mt-2 w-full bg-gray-700 rounded-full h-1.5">
-                <div
-                  className={`h-1.5 rounded-full transition-all duration-500 ${
-                    student.engagement >= 80
-                      ? 'bg-green-500'
-                      : student.engagement >= 50
-                      ? 'bg-yellow-500'
-                      : student.engagement > 0
-                      ? 'bg-red-500'
-                      : 'bg-gray-600'
-                  }`}
-                  style={{ width: `${student.engagement}%` }}
-                />
-              </div>
-
-              {/* Looking at screen indicator */}
-              {student.lookingAtScreen !== undefined && (
-                <div className="mt-2 flex items-center gap-2">
-                  {student.lookingAtScreen ? (
-                    <Eye className="w-3 h-3 text-green-400" />
-                  ) : (
-                    <EyeOff className="w-3 h-3 text-red-400" />
-                  )}
-                  <span className="text-[10px] text-gray-500">
-                    {student.lookingAtScreen ? 'Looking at screen' : 'Not looking at screen'}
-                  </span>
-                  {student.multipleFaces && (
-                    <span className="flex items-center gap-1 text-[10px] text-yellow-400">
-                      <AlertTriangle className="w-3 h-3" />
-                      Multiple faces
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Join time */}
               {student.joinTime && (
                 <div className="mt-1.5 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-gray-500" />
                   <span className="text-[10px] text-gray-500">Joined {student.joinTime}</span>
                 </div>
               )}

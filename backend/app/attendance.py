@@ -20,6 +20,7 @@ class AttendanceManager:
         """Initialize attendance manager."""
         self.active_sessions: Dict[str, datetime] = {}  # session_id -> last_engaged_time
         self._indexes_ready = False
+        self.engagement_sample_seconds = settings.frame_interval_seconds
         logger.info("✓ Attendance manager initialized")
 
     def _should_enforce_retention(self) -> bool:
@@ -264,15 +265,10 @@ class AttendanceManager:
             # Calculate time since last frame
             last_engaged_time = self.active_sessions.get(session_key)
             time_increment = 0
-            
-            if last_engaged_time:
-                # Calculate seconds since last update
-                time_diff = (current_time - last_engaged_time).total_seconds()
-                
-                # Only count if face is detected AND looking at screen
-                # Cap at frame interval + buffer to prevent manipulation
-                if face_detected and looking_at_screen:
-                    time_increment = min(time_diff, settings.frame_interval_seconds + 2)
+
+            if last_engaged_time and face_detected:
+                # Fixed increment sampling: each valid detection sample adds one interval.
+                time_increment = self.engagement_sample_seconds
             
             # Update last engaged time
             self.active_sessions[session_key] = current_time
@@ -396,7 +392,7 @@ class AttendanceManager:
         ended_at = class_doc.get("ended_at") or datetime.utcnow()
         class_duration_seconds = max(
             int((ended_at - session_started_at).total_seconds()),
-            settings.frame_interval_seconds,
+            1,
         )
 
         rows = []
@@ -439,7 +435,7 @@ class AttendanceManager:
         session_started_at = class_doc.get("session_started_at") or ended_at
         class_duration_seconds = max(
             int((ended_at - session_started_at).total_seconds()),
-            settings.frame_interval_seconds,
+            1,
         )
         class_date = session_started_at.date().isoformat()
 

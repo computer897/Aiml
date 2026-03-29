@@ -558,9 +558,6 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                                             {statusText}
                                           </span>
                                         </div>
-                                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                                          {Math.round(student.engagement_percentage || 0)}%
-                                        </span>
                                       </div>
                                     )
                                   })}
@@ -571,9 +568,6 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                                 <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                                   <span>
                                     {(liveEngagement?.students || []).filter((s) => s.face_detected).length} / {(liveEngagement?.students || []).length} students present
-                                  </span>
-                                  <span>
-                                    Avg engagement: {Math.round((liveEngagement?.students || []).reduce((sum, s) => sum + (s.engagement_percentage || 0), 0) / Math.max((liveEngagement?.students || []).length, 1))}%
                                   </span>
                                 </div>
                               )}

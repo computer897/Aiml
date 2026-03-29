@@ -77,7 +77,8 @@ export function createWebRTCManager() {
     onForceMuted: null,             // () => {}
     onForceRemoved: null,           // () => {}
     onKicked: null,                 // (data) => {} - Student was kicked via remove-student
-    onStudentEngagement: null,      // (data) => {} - Teacher receives engagement updates
+    onEngagementUpdate: null,       // (data) => {} - Teacher receives engagement updates
+    onStudentEngagement: null,      // (data) => {} - Legacy alias
     onClassEnded: null,             // ({ attendance, endTime }) => {} - Teacher ends class
     onAttendanceUpdate: null,       // (attendanceMap) => {} - Live join/leave updates to teacher
     onCameraStatus: null,           // ({ socketId, userId, userName, enabled }) => {} - Remote camera toggle
@@ -323,9 +324,16 @@ export function createWebRTCManager() {
       callbacks.onScreenShareBlocked?.(data.message)
     })
 
-    // Teacher receives real-time engagement updates from students via socket.io
-    socket.on('student-engagement', (data) => {
+    // Teacher receives real-time engagement updates from students via socket.io.
+    socket.on('engagement-update', (data) => {
       console.log('[WebRTC] Engagement update from:', data.studentName, '->', data.status)
+      callbacks.onEngagementUpdate?.(data)
+      callbacks.onStudentEngagement?.(data)
+    })
+
+    // Legacy event alias for older signaling servers.
+    socket.on('student-engagement', (data) => {
+      callbacks.onEngagementUpdate?.(data)
       callbacks.onStudentEngagement?.(data)
     })
 
@@ -726,7 +734,7 @@ export function createWebRTCManager() {
 
   /**
    * Student sends engagement status to server via socket.io.
-   * Server forwards it to the room's teacher as 'student-engagement'.
+    * Server forwards it to the room's teacher as 'engagement-update'.
    * @param {string} studentId
    * @param {'attentive'|'not-detected'|'distracted'} status
    * @param {string} studentName
