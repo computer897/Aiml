@@ -1364,25 +1364,36 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         setIsStudentApproved(true)
         // Start attendance and face tracking after approval (student with consent)
         if (user?.role === 'student' && consentGiven) {
-          const activeSessionId = classData?.active_session_id || initialSessionId
-          if (!activeSessionId) {
-            console.error('Missing active session ID for class attendance tracking')
-            return
-          }
-          setSessionId(activeSessionId)
-          
-          // Start attendance session on backend
-          attendanceAPI.start(classData.class_id, activeSessionId, {
-            classTitle: classData?.title,
-            teacherName: classData?.teacher_name,
-            startedAt: classData?.session_started_at,
-          })
-            .then(() => {
+          ;(async () => {
+            try {
+              let activeSessionId = classData?.active_session_id || initialSessionId
+              let resolvedClassData = classData
+
+              if (!activeSessionId && classData?.class_id) {
+                const latestClass = await classAPI.get(classData.class_id)
+                resolvedClassData = latestClass
+                activeSessionId = latestClass?.active_session_id || null
+              }
+
+              if (!activeSessionId) {
+                console.error('Missing active session ID for class attendance tracking')
+                return
+              }
+
+              setSessionId(activeSessionId)
+
+              await attendanceAPI.start(resolvedClassData.class_id, activeSessionId, {
+                classTitle: resolvedClassData?.title,
+                teacherName: resolvedClassData?.teacher_name,
+                startedAt: resolvedClassData?.session_started_at,
+              })
+
               console.log('[Classroom] Attendance session started')
-              // Initialize face tracking
               initializeFaceTracking(activeSessionId)
-            })
-            .catch(err => console.error('Failed to start attendance:', err))
+            } catch (err) {
+              console.error('Failed to start attendance:', err)
+            }
+          })()
         }
       }
 
@@ -1740,11 +1751,20 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         setAttendanceReport(report)
         setShowAttendanceReport(true)
       } else {
-        const fallback = await attendanceAPI.end({
-          classId: classData.class_id,
-          sessionId: activeSessionId,
-          endedAt: new Date().toISOString(),
-        })
+        let fallback = null
+        try {
+          fallback = await attendanceAPI.end({
+            classId: classData.class_id,
+            sessionId: activeSessionId,
+            endedAt: new Date().toISOString(),
+          })
+        } catch {
+        }
+
+        if (!fallback?.attendance_records) {
+          fallback = await attendanceAPI.getReport(classData.class_id, activeSessionId)
+        }
+
         setAttendanceReport(fallback)
         setShowAttendanceReport(true)
       }

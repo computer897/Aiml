@@ -14,8 +14,7 @@ import { loadFaceDetectionModels, detectFaces } from '../services/faceDetection'
  *   no face detected         → engagement = "not-detected"
  *
  * Fallback (when face-api models fail to load):
- *   camera track live        → engagement = "attentive"
- *   camera track missing     → engagement = "not-detected"
+ *   treat as not-detected to avoid false present status.
  *
  * @param {object}  videoRef   – React ref pointing to the <video> element
  * @param {object}  webrtcRef  – React ref pointing to the WebRTC manager
@@ -84,14 +83,9 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
         lastVideoWarningRef.current = Date.now()
       }
 
-      // Fallback: treat camera-on as present/attentive
-      const el = videoElement
-      const hasLiveVideo = !!(
-        el?.srcObject &&
-        el.srcObject.getVideoTracks().some(t => t.enabled && t.readyState === 'live')
-      )
-      setFaceDetected(hasLiveVideo)
-      status = hasLiveVideo ? 'attentive' : 'not-detected'
+      // Conservative fallback: never mark present without actual face detection.
+      setFaceDetected(false)
+      status = 'not-detected'
     }
 
     setEngagementStatus(status)

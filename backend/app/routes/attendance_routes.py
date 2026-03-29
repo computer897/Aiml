@@ -228,12 +228,53 @@ async def process_metadata(
         "session_id": metadata.session_id,
         "student_id": metadata.student_id
     })
-    
+
     if not attendance_doc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Attendance session not found"
+        class_doc = await db.classes.find_one({"class_id": metadata.class_id})
+        if not class_doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Class not found"
+            )
+
+        active_session_id = class_doc.get("active_session_id")
+        if active_session_id and metadata.session_id != active_session_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Attendance session does not match the active class session"
+            )
+
+        if current_user.id not in class_doc.get("enrolled_students", []):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not enrolled in this class"
+            )
+
+        # Self-heal missing start call: create attendance session from metadata flow.
+        await attendance_manager.start_attendance_session(
+            student_id=current_user.id,
+            student_name=current_user.name,
+            class_id=metadata.class_id,
+            session_id=metadata.session_id,
+            class_duration_minutes=class_doc.get("duration_minutes", 0),
+            class_started_at=class_doc.get("session_started_at"),
+            class_title=class_doc.get("title"),
+            teacher_name=class_doc.get("teacher_name"),
+            section=metadata.section or current_user.department_name,
+            db=db,
         )
+
+        attendance_doc = await db.attendance.find_one({
+            "class_id": metadata.class_id,
+            "session_id": metadata.session_id,
+            "student_id": metadata.student_id
+        })
+
+        if not attendance_doc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to initialize attendance session"
+            )
     
     # Fixed-interval engagement sampling: every valid sample adds 5 seconds.
     current_time = metadata.timestamp
