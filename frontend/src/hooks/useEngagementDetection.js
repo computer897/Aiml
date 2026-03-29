@@ -95,11 +95,12 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
     }
 
     setEngagementStatus(status)
+    const isPresent = status !== 'not-detected'
 
     // Emit to signaling server → forwarded to teacher as 'student-engagement'
     // cameraOn is always true for students since the physical camera stays on
     // even when visibility is toggled off
-    webrtcRef.current.sendEngagementUpdate(userId, status, userName, true)
+    webrtcRef.current.sendEngagementUpdate(userId, status, userName, true, isPresent, Date.now())
   }, [userId, userName, videoRef, webrtcRef])
 
   // ── Start / stop 5-second interval tied to isActive ─────────────────────

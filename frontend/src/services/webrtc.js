@@ -50,6 +50,8 @@ export function createWebRTCManager() {
   let socket = null
   let localStream = null
   let screenStream = null
+  let hiddenVideoTrack = null
+  let videoVisibleToPeers = true
   let peers = {} // { socketId: RTCPeerConnection }
   let remoteStreams = {} // { socketId: MediaStream }
   let role = null
@@ -345,6 +347,26 @@ export function createWebRTCManager() {
     })
   }
 
+  function getHiddenVideoTrack() {
+    if (hiddenVideoTrack && hiddenVideoTrack.readyState === 'live') {
+      return hiddenVideoTrack
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 480
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
+
+    const stream = canvas.captureStream(1)
+    const track = stream.getVideoTracks()[0]
+    hiddenVideoTrack = track || null
+    return hiddenVideoTrack
+  }
+
   function createPeerConnection(socketId, initiator = false, userInfo = {}) {
     if (destroyed) return null
     // Close existing connection if any
@@ -390,6 +412,17 @@ export function createWebRTCManager() {
       if (screenTrack && videoSender) {
         videoSender.replaceTrack(screenTrack).catch(err =>
           console.error('[WebRTC] Error applying current screen share to new peer:', err)
+        )
+      }
+    }
+
+    // Keep camera active locally while hiding outbound video when requested.
+    if (!videoVisibleToPeers) {
+      const videoSender = pc.getSenders().find(s => s.track?.kind === 'video')
+      const fallbackTrack = getHiddenVideoTrack()
+      if (videoSender && fallbackTrack) {
+        videoSender.replaceTrack(fallbackTrack).catch(err =>
+          console.error('[WebRTC] Error applying hidden video track to new peer:', err)
         )
       }
     }
@@ -629,11 +662,14 @@ export function createWebRTCManager() {
     const videoTrack = localStream.getVideoTracks()[0]
     if (!videoTrack) return
 
+    videoVisibleToPeers = enabled
+
     if (enabled) {
-      // Re-enable the real video track for all senders
+      // Re-enable the real video track for all senders.
+      // Keep the physical camera track live for attendance detection.
       videoTrack.enabled = true
       for (const pc of Object.values(peers)) {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video' || (s.track === null && s._kind === 'video'))
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video')
         if (sender && sender.track !== videoTrack) {
           try { await sender.replaceTrack(videoTrack) } catch (e) {
             console.error('[WebRTC] setVideoEnabled(true) replaceTrack error:', e)
@@ -641,10 +677,17 @@ export function createWebRTCManager() {
         }
       }
     } else {
-      // Disable track so peers receive black video (no replaceTrack needed — track.enabled=false works).
-      // For the dual-track attendance use-case the track stays enabled at the stream level;
-      // this helper is called from Classroom.jsx which handles that separately.
-      videoTrack.enabled = false
+      // Hide outgoing video without turning off the camera track used by face detection.
+      videoTrack.enabled = true
+      const fallbackTrack = getHiddenVideoTrack()
+      for (const pc of Object.values(peers)) {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+        if (sender && fallbackTrack && sender.track !== fallbackTrack) {
+          try { await sender.replaceTrack(fallbackTrack) } catch (e) {
+            console.error('[WebRTC] setVideoEnabled(false) replaceTrack error:', e)
+          }
+        }
+      }
     }
   }
 
@@ -688,10 +731,12 @@ export function createWebRTCManager() {
    * @param {'attentive'|'not-detected'|'distracted'} status
    * @param {string} studentName
    * @param {boolean} cameraOn
+   * @param {boolean} isPresent
+   * @param {number} timestamp
    */
-  function sendEngagementUpdate(studentId, status, studentName, cameraOn) {
+  function sendEngagementUpdate(studentId, status, studentName, cameraOn, isPresent = status !== 'not-detected', timestamp = Date.now()) {
     if (!socket || !roomId) return
-    socket.emit('engagement-update', { studentId, status, studentName, cameraOn })
+    socket.emit('engagement-update', { studentId, status, studentName, cameraOn, isPresent, timestamp })
   }
 
   /**
@@ -827,6 +872,11 @@ export function createWebRTCManager() {
     if (screenStream) {
       screenStream.getTracks().forEach(t => t.stop())
       screenStream = null
+    }
+
+    if (hiddenVideoTrack) {
+      hiddenVideoTrack.stop()
+      hiddenVideoTrack = null
     }
 
     // Disconnect socket

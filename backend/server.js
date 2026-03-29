@@ -43,12 +43,15 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Room structure: { classroomId: { host: socketId, participants: [socketId1, ...], waitingStudents: [] } }
+// Room structure: { classroomId: { host: socketId, participants: [socketId1, ...], waitingStudents: [], classStartedAt: ISO } }
 // Note: "host" is the teacher, "participants" includes approved students
 const rooms = {};
 
-// Attendance data: { roomId: { socketId: { socketId, userId, name, joinTime, leaveTime, totalDuration, engagementStatus, cameraOn } } }
+// Attendance data: { roomId: { socketId: { socketId, userId, name, joinTime, leaveTime, totalDuration, engagementStatus, cameraOn, engagementSeconds, lastSampleAt } } }
 const attendanceData = {};
+
+const ENGAGEMENT_INTERVAL_SECONDS = 5;
+const ATTENDANCE_THRESHOLD_PERCENT = 70;
 
 // Helper – ensure room attendance map exists
 function ensureAttendance(roomId) {
@@ -64,20 +67,56 @@ function fmtTime(iso) {
 // Build a finalised attendance report array for a room.
 function buildAttendanceReport(roomId) {
   const now = new Date();
+  const room = rooms[roomId] || {};
+  const classStart = room.classStartedAt ? new Date(room.classStartedAt) : null;
+  const classDurationSeconds = classStart
+    ? Math.max(ENGAGEMENT_INTERVAL_SECONDS, Math.round((now - classStart) / 1000))
+    : ENGAGEMENT_INTERVAL_SECONDS;
+
   const map = attendanceData[roomId] || {};
-  return Object.values(map).map(entry => {
+  const attendance = Object.values(map).map(entry => {
     const leaveTime = entry.leaveTime ? new Date(entry.leaveTime) : now;
     const joinTime  = new Date(entry.joinTime);
     const durationMin = Math.max(0, Math.round((leaveTime - joinTime) / 60000));
+    const engagementSeconds = Math.max(0, Math.round(entry.engagementSeconds || 0));
+    const engagementPercentage = classDurationSeconds > 0
+      ? Math.min(100, Math.round((engagementSeconds / classDurationSeconds) * 10000) / 100)
+      : 0;
+    const attendanceStatus = engagementPercentage >= ATTENDANCE_THRESHOLD_PERCENT ? 'Present' : 'Absent';
+
     return {
       ...entry,
       leaveTime:     entry.leaveTime || now.toISOString(),
       totalDuration: durationMin,
+      engagementSeconds,
+      engagementMinutes: Math.round((engagementSeconds / 60) * 100) / 100,
+      engagementLabel: `${Math.round((engagementSeconds / 60) * 10) / 10} min`,
+      classDurationSeconds,
+      classDurationMinutes: Math.round((classDurationSeconds / 60) * 100) / 100,
+      engagementPercentage,
+      attendanceStatus,
       joinTimeLabel:  fmtTime(entry.joinTime),
       leaveTimeLabel: fmtTime(entry.leaveTime || now.toISOString()),
       durationLabel:  `${durationMin} min`,
     };
   });
+
+  const totalStudents = attendance.length;
+  const presentCount = attendance.filter(item => item.attendanceStatus === 'Present').length;
+  const absentCount = totalStudents - presentCount;
+
+  return {
+    attendance,
+    summary: {
+      totalStudents,
+      presentCount,
+      absentCount,
+      attendanceRate: totalStudents > 0 ? Math.round((presentCount / totalStudents) * 10000) / 100 : 0,
+      classDurationSeconds,
+      classDurationMinutes: Math.round((classDurationSeconds / 60) * 100) / 100,
+      attendanceThresholdPercent: ATTENDANCE_THRESHOLD_PERCENT,
+    }
+  };
 }
 
 // Helper: Check if a socket is an approved participant (host or in participants list)
@@ -168,7 +207,7 @@ io.on("connection", socket => {
     socket.isApproved = false;
 
     if (!rooms[roomId]) {
-      rooms[roomId] = { host: null, participants: [], waitingStudents: [] };
+      rooms[roomId] = { host: null, participants: [], waitingStudents: [], classStartedAt: null };
     }
 
     // Add to waiting students if not already there
@@ -228,6 +267,8 @@ io.on("connection", socket => {
       totalDuration:   null,
       engagementStatus:'Not Present',
       cameraOn:        true,
+      engagementSeconds: 0,
+      lastSampleAt: null,
     };
     // Notify teacher's dashboard with updated attendance map
     if (rooms[roomId].host) {
@@ -301,11 +342,12 @@ io.on("connection", socket => {
     socket.userName = userName;
 
     if (!rooms[roomId]) {
-      rooms[roomId] = { host: null, participants: [], waitingStudents: [] };
+      rooms[roomId] = { host: null, participants: [], waitingStudents: [], classStartedAt: null };
     }
 
     if (role === "teacher") {
       rooms[roomId].host = socket.id;
+      rooms[roomId].classStartedAt = rooms[roomId].classStartedAt || new Date().toISOString();
       socket.isApproved = true;
 
       // When teacher joins, notify all waiting students that teacher is here
@@ -457,10 +499,10 @@ io.on("connection", socket => {
   });
 
   // ── Student Engagement Update (socket.io path) ──
-  // Students send engagement status every 3 seconds; server persists it and
+  // Students send engagement status periodically; server persists it and
   // broadcasts the update to all room members (teacher processes it for the dashboard).
   socket.on("engagement-update", data => {
-    const { studentId, status, studentName, cameraOn } = data;
+    const { studentId, status, studentName, cameraOn, isPresent, timestamp } = data;
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = rooms[roomId];
@@ -468,11 +510,14 @@ io.on("connection", socket => {
     // Only approved students may send engagement updates
     if (!room.participants.includes(socket.id)) return;
 
+    const sampleTime = timestamp ? new Date(timestamp) : new Date();
+    const detected = typeof isPresent === 'boolean' ? isPresent : status !== 'not-detected';
+
     // ── Persist engagement status in attendance map ──
     ensureAttendance(roomId);
-    const engLabel = status === 'attentive' ? 'Attentive'
-                   : status === 'distracted' ? 'Distracted'
-                   : 'Not Present';
+    const engLabel = detected
+      ? (status === 'distracted' ? 'Distracted' : 'Attentive')
+      : 'Not Present';
 
     // Create attendance entry on the fly if the student was added outside accept-student
     if (!attendanceData[roomId][socket.id]) {
@@ -485,10 +530,28 @@ io.on("connection", socket => {
         totalDuration:   null,
         engagementStatus: engLabel,
         cameraOn:        cameraOn !== false,
+        engagementSeconds: 0,
+        lastSampleAt: sampleTime.toISOString(),
       };
     } else {
-      attendanceData[roomId][socket.id].engagementStatus = engLabel;
-      attendanceData[roomId][socket.id].cameraOn = cameraOn !== false;
+      const existing = attendanceData[roomId][socket.id];
+      const previousSample = existing.lastSampleAt ? new Date(existing.lastSampleAt) : null;
+      let incrementSeconds = ENGAGEMENT_INTERVAL_SECONDS;
+
+      if (previousSample) {
+        const diff = Math.round((sampleTime - previousSample) / 1000);
+        if (Number.isFinite(diff) && diff > 0) {
+          incrementSeconds = Math.min(Math.max(diff, 1), ENGAGEMENT_INTERVAL_SECONDS * 2);
+        }
+      }
+
+      if (detected) {
+        existing.engagementSeconds = Math.max(0, (existing.engagementSeconds || 0) + incrementSeconds);
+      }
+
+      existing.lastSampleAt = sampleTime.toISOString();
+      existing.engagementStatus = engLabel;
+      existing.cameraOn = cameraOn !== false;
     }
 
     // Broadcast to everyone in the room except the sender.
@@ -500,10 +563,12 @@ io.on("connection", socket => {
       studentId:   studentId || socket.userId,
       studentName: studentName || socket.userName,
       status,           // "attentive" | "not-detected" | "distracted"
+      isPresent:   detected,
       cameraOn:    cameraOn !== false,
       joinTime,
       joinTimeLabel: fmtTime(joinTime),
-      timestamp:   new Date().toISOString()
+      engagementSeconds: attendanceData[roomId]?.[socket.id]?.engagementSeconds || 0,
+      timestamp:   sampleTime.toISOString()
     });
     console.log(`[engagement-update] ${socket.userName}: ${status} in room ${roomId}`);
   });
@@ -516,11 +581,11 @@ io.on("connection", socket => {
     const room = rooms[roomId];
     if (!room || room.host !== socket.id) return;
 
-    const report = buildAttendanceReport(roomId);
+    const { attendance, summary } = buildAttendanceReport(roomId);
     const endTime = new Date().toISOString();
 
     // Send full attendance report to teacher
-    socket.emit("class-ended", { attendance: report, endTime });
+    socket.emit("class-ended", { attendance, summary, endTime });
 
     // Notify students that the class has ended
     socket.to(roomId).emit("teacher-left", {
@@ -535,8 +600,9 @@ io.on("connection", socket => {
     rooms[roomId].host = null;
     rooms[roomId].participants = [];
     rooms[roomId].waitingStudents = [];
+    rooms[roomId].classStartedAt = null;
 
-    console.log(`[end-class] Teacher "${socket.userName}" ended class in room ${roomId}. ${report.length} students in report.`);
+    console.log(`[end-class] Teacher "${socket.userName}" ended class in room ${roomId}. ${attendance.length} students in report.`);
   });
 
   // ── Remove Student (alias: remove-student / remove-user) ──

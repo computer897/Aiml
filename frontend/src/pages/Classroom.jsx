@@ -1077,6 +1077,12 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   // Camera is mandatory for students — treat as consented automatically
   const consentGiven = user?.role === 'student' ? true : (initialSettings?.consentGiven ?? false)
 
+  // Class timer state (countdown & elapsed time)
+  const [classElapsedTime, setClassElapsedTime] = useState(0) // seconds
+  const [classRemainingTime, setClassRemainingTime] = useState(null) // seconds or null
+  const [scheduledEndTime, setScheduledEndTime] = useState(null) // timestamp
+  const [showEndWarning, setShowEndWarning] = useState(false)
+
   // Track whether this student has been approved into the room
   const [isStudentApproved, setIsStudentApproved] = useState(user?.role === 'teacher')
 
@@ -1112,7 +1118,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   }, [classData?.active_session_id, initialSessionId, sessionId])
 
   // ── Real-time engagement detection hook (students only) ──────────────────
-  // Runs face detection every 3 seconds when the student is approved.
+  // Runs face detection every 5 seconds when the student is approved.
   // Sends engagement status to the signaling server → forwarded to teacher.
   const { faceDetected: engagementFaceDetected } = useEngagementDetection({
     videoRef: attendanceVideoRef,
@@ -1524,6 +1530,75 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Calculate scheduled end time when class data is available ──
+  useEffect(() => {
+    if (classData?.schedule_time && classData?.duration_minutes) {
+      const scheduleTime = new Date(classData.schedule_time)
+      const endTime = new Date(scheduleTime.getTime() + classData.duration_minutes * 60000)
+      setScheduledEndTime(endTime.getTime())
+      console.log('[Classroom] Scheduled end time:', endTime.toLocaleTimeString())
+    }
+  }, [classData?.schedule_time, classData?.duration_minutes])
+
+  // ── Class timer: Update elapsed and remaining time every second ──
+  useEffect(() => {
+    if (!classData?.session_started_at || !classData?.is_active) {
+      return
+    }
+
+    const timerInterval = setInterval(() => {
+      const now = Date.now()
+      const classStartTime = new Date(classData.session_started_at).getTime()
+
+      // Elapsed time since class started
+      const elapsed = Math.floor((now - classStartTime) / 1000)
+      setClassElapsedTime(elapsed)
+
+      // Remaining time until scheduled end
+      if (scheduledEndTime) {
+        const remaining = Math.max(0, Math.floor((scheduledEndTime - now) / 1000))
+        setClassRemainingTime(remaining)
+      }
+    }, 1000)
+
+    return () => clearInterval(timerInterval)
+  }, [classData?.session_started_at, classData?.is_active, scheduledEndTime])
+
+  // ── Auto-end class when scheduled duration expires (teacher only) ──
+  useEffect(() => {
+    if (user?.role !== 'teacher' || !scheduledEndTime || !classData?.is_active) {
+      return
+    }
+
+    const checkEndTime = setInterval(() => {
+      if (Date.now() >= scheduledEndTime) {
+        console.log('[Classroom] Class duration expired - auto-ending class')
+        handleEndClass(true) // Pass flag to indicate auto-end
+        clearInterval(checkEndTime)
+      }
+    }, 5000) // Check every 5 seconds
+
+    return () => clearInterval(checkEndTime)
+  }, [user?.role, scheduledEndTime, classData?.is_active]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Show warning 5 minutes before class ends (teacher only) ──
+  useEffect(() => {
+    if (user?.role !== 'teacher' || classRemainingTime === null) {
+      return
+    }
+
+    // Warn when 5 minutes remaining and haven't shown warning yet
+    if (classRemainingTime <= 300 && classRemainingTime > 295 && !showEndWarning) {
+      console.log('[Classroom] Showing 5-minute warning')
+      setShowEndWarning(true)
+    }
+
+    // Reset warning if timer goes above 5 minutes (edge case)
+    if (classRemainingTime > 300 && showEndWarning) {
+      setShowEndWarning(false)
+    }
+  }, [user?.role, classRemainingTime, showEndWarning])
+
   // ── Toggle video track ──
   // Students: CAN toggle camera visibility to others. The physical camera stays
   // ON so face detection / engagement tracking continues in the background.
@@ -1633,9 +1708,20 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
     await _doLeaveClass()
   }
 
-  const handleEndClass = async () => {
+  const handleEndClass = async (isAutoEnd = false) => {
     if (user?.role !== 'teacher') return
-    if (!window.confirm('End the class for everyone? This will finalize attendance.')) return
+
+    const message = isAutoEnd
+      ? 'Class duration has ended. Finalizing attendance...'
+      : 'End the class for everyone? This will finalize attendance.'
+
+    if (!isAutoEnd) {
+      if (!window.confirm(message)) return
+    } else {
+      // Show non-blocking notification for auto-end
+      console.log('[Classroom] Auto-ending class:', message)
+    }
+
     const activeSessionId = sessionId || classData?.active_session_id || initialSessionId
     if (!activeSessionId) {
       alert('Active session information is missing for this class.')
@@ -1736,6 +1822,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
 
     // Check if screen sharing is supported (mobile devices often don't support it)
     if (!navigator.mediaDevices?.getDisplayMedia) {
+      alert('Screen sharing not supported on this device')
       setScreenShareBlockedMsg('Screen sharing is not supported on this device. Please use a desktop browser.')
       setTimeout(() => setScreenShareBlockedMsg(''), 5000)
       return
@@ -1863,6 +1950,23 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         </div>
       )}
 
+      {/* End of class warning (5 minutes before) - Teacher only */}
+      {showEndWarning && user?.role === 'teacher' && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2.5 bg-amber-900 border border-amber-600 rounded-lg shadow-lg animate-slide-down">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-amber-400" />
+            <p className="text-white text-sm font-medium">Class ends in 5 minutes</p>
+            <button
+              onClick={() => setShowEndWarning(false)}
+              className="ml-2 text-white/70 hover:text-white transition"
+              aria-label="Dismiss warning"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Screen share blocked toast */}
       {screenShareBlockedMsg && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2.5 bg-orange-900 border border-orange-600 rounded-lg shadow-lg flex items-center gap-2">
@@ -1897,6 +2001,24 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                   <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-400 rounded-full animate-pulse" />
                   <span className="text-white text-xs sm:text-sm font-medium">Live</span>
                 </div>
+
+                {/* Class timer - Teacher sees remaining time, Students see elapsed time */}
+                {user?.role === 'teacher' && classRemainingTime !== null && (
+                  <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg">
+                    <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" />
+                    <span className="text-white text-xs sm:text-sm font-medium">
+                      {Math.floor(classRemainingTime / 60)}:{(classRemainingTime % 60).toString().padStart(2, '0')} left
+                    </span>
+                  </div>
+                )}
+                {user?.role === 'student' && classElapsedTime > 0 && (
+                  <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg">
+                    <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" />
+                    <span className="text-white text-xs sm:text-sm font-medium">
+                      {Math.floor(classElapsedTime / 60)} min
+                    </span>
+                  </div>
+                )}
                 <button
                   onClick={() => togglePanel('participants')}
                   className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg backdrop-blur-sm transition ${showParticipants ? 'bg-primary-600/90' : 'bg-black/40 hover:bg-black/60 border border-white/10'}`}

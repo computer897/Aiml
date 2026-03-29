@@ -175,6 +175,10 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
                       {student.avatar || student.name?.split(' ').map(n => n[0]).join('') || '?'}
                     </span>
                   </div>
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${student.status === 'inactive' || student.status === 'absent' ? 'bg-red-500' : 'bg-green-500'}`}
+                    title={student.status === 'inactive' || student.status === 'absent' ? 'No face detected' : 'Face detected'}
+                  />
                   <span className="text-sm font-medium text-white">{student.name}</span>
                 </div>
                 <div className="flex items-center gap-1.5">

@@ -462,81 +462,83 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                         <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-primary-500 transition" />
                       </div>
                     </div>
+                  ))}
+                </div>
 
-                          <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
-                            <div className="flex flex-col sm:flex-row gap-3 flex-1">
-                              <div className="flex flex-col flex-1 min-w-[180px]">
-                                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1">Class</label>
-                                <select
-                                  value={activeClass?.class_id || ''}
-                                  onChange={(e) => handleSelectClassForAttendance(e.target.value)}
-                                  className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200"
-                                >
-                                  {classes.length === 0 && <option value="">No classes</option>}
-                                  {classes.map((cls) => (
-                                    <option key={cls.class_id} value={cls.class_id}>{cls.title}</option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div className="flex flex-col flex-1 min-w-[200px]">
-                                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1">Attendance Session</label>
-                                <select
-                                  value={selectedSessionId || ''}
-                                  onChange={(e) => handleSessionChange(e.target.value)}
-                                  className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200"
-                                >
-                                  <option value="">Latest / Live</option>
-                                  {attendanceHistory.map((summary) => (
-                                    <option key={summary.session_id} value={summary.session_id}>
-                                      {formatSessionLabel(summary)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={handleRefreshAttendance}
-                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 rounded-lg hover:bg-primary-100 dark:hover:bg-primary-900/50 transition"
-                              >
-                                <RefreshCw className="w-4 h-4" /> Refresh
-                              </button>
-                              {selectedSessionId && (
-                                <button
-                                  onClick={() => handleDeleteReport(selectedSessionId)}
-                                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition"
-                                >
-                                  <Trash2 className="w-4 h-4" /> Delete
-                                </button>
-                              )}
-                            </div>
-                          </div>
+                <div className="p-5">
+                  <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+                    <div className="flex flex-col sm:flex-row gap-3 flex-1">
+                      <div className="flex flex-col flex-1 min-w-[180px]">
+                        <label className="text-xs text-gray-500 dark:text-gray-400 mb-1">Class</label>
+                        <select
+                          value={activeClass?.class_id || ''}
+                          onChange={(e) => handleSelectClassForAttendance(e.target.value)}
+                          className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200"
+                        >
+                          {classes.length === 0 && <option value="">No classes</option>}
+                          {classes.map((cls) => (
+                            <option key={cls.class_id} value={cls.class_id}>{cls.title}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex flex-col flex-1 min-w-[200px]">
+                        <label className="text-xs text-gray-500 dark:text-gray-400 mb-1">Attendance Session</label>
+                        <select
+                          value={selectedSessionId || ''}
+                          onChange={(e) => handleSessionChange(e.target.value)}
+                          className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200"
+                        >
+                          <option value="">Latest / Live</option>
+                          {attendanceHistory.map((summary) => (
+                            <option key={summary.session_id} value={summary.session_id}>
+                              {formatSessionLabel(summary)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleRefreshAttendance}
+                        className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 rounded-lg hover:bg-primary-100 dark:hover:bg-primary-900/50 transition"
+                      >
+                        <RefreshCw className="w-4 h-4" /> Refresh
+                      </button>
+                      {selectedSessionId && (
+                        <button
+                          onClick={() => handleDeleteReport(selectedSessionId)}
+                          className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition"
+                        >
+                          <Trash2 className="w-4 h-4" /> Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
-                          {activeClass?.is_active && (
-                            <div className="mb-4 border border-gray-100 dark:border-gray-800 rounded-xl p-4 bg-gray-50 dark:bg-gray-900/40">
-                              <div className="flex items-center justify-between mb-3">
-                                <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
-                                  <Radio className="w-4 h-4 text-green-500 animate-pulse" /> Live Engagement Snapshot
-                                </div>
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  {liveEngagement?.updatedAt
-                                    ? `Updated ${new Date(liveEngagement.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
-                                    : liveError || 'Waiting for student signals'}
-                                </span>
-                              </div>
+                  {activeClass?.is_active && (
+                    <div className="mb-4 border border-gray-100 dark:border-gray-800 rounded-xl p-4 bg-gray-50 dark:bg-gray-900/40">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
+                          <Radio className="w-4 h-4 text-green-500 animate-pulse" /> Live Engagement Snapshot
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {liveEngagement?.updatedAt
+                            ? `Updated ${new Date(liveEngagement.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+                            : liveError || 'Waiting for student signals'}
+                        </span>
+                      </div>
 
-                              {/* Legend for status dots */}
-                              <div className="flex items-center gap-4 mb-3 text-xs text-gray-500 dark:text-gray-400">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-2 h-2 rounded-full bg-green-400"></span>
-                                  <span>Present</span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-2 h-2 rounded-full bg-red-400"></span>
-                                  <span>Not Present</span>
-                                </div>
-                              </div>
-
+                      {/* Legend for status indicators */}
+                      <div className="flex items-center gap-4 mb-3 text-xs text-gray-500 dark:text-gray-400">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-green-400"></span>
+                          <span>Present</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-red-400"></span>
+                          <span>Not Present</span>
+                        </div>
+                      </div>
                               {(liveEngagement?.students || []).length === 0 ? (
                                 <p className="text-sm text-gray-500 dark:text-gray-400">
                                   {liveError || 'No engagement data yet. Students will appear once their browsers send presence metadata.'}
@@ -544,8 +546,7 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                               ) : (
                                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                                   {(liveEngagement?.students || []).map((student) => {
-                                    // Green = face detected (present), Red = no face (not present)
-                                    const isPresent = student.face_detected
+                                    const isPresent = Boolean(student.face_detected)
                                     const dotColor = isPresent ? 'bg-green-400' : 'bg-red-400'
                                     const statusText = isPresent ? 'Present' : 'Not Present'
                                     return (
@@ -566,13 +567,12 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                                 </div>
                               )}
 
-                              {/* Quick summary */}
                               {(liveEngagement?.students || []).length > 0 && (
-                                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs">
-                                  <span className="text-gray-500 dark:text-gray-400">
-                                    {(liveEngagement?.students || []).filter(s => s.face_detected).length} / {(liveEngagement?.students || []).length} students present
+                                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                                  <span>
+                                    {(liveEngagement?.students || []).filter((s) => s.face_detected).length} / {(liveEngagement?.students || []).length} students present
                                   </span>
-                                  <span className="text-gray-500 dark:text-gray-400">
+                                  <span>
                                     Avg engagement: {Math.round((liveEngagement?.students || []).reduce((sum, s) => sum + (s.engagement_percentage || 0), 0) / Math.max((liveEngagement?.students || []).length, 1))}%
                                   </span>
                                 </div>
@@ -629,6 +629,7 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                               </div>
                             </div>
                           )}
+                </div>
               </section>
             )}
 

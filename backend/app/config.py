@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
 
     # Engagement Thresholds
-    attendance_threshold: float = 60.0
+    attendance_threshold: float = 70.0
     frame_interval_seconds: int = 5
-    attendance_retention_hours: int = 0
+    attendance_retention_hours: int = 24  # Records expire after 24 hours
 
     class Config:
         env_file = ".env"
