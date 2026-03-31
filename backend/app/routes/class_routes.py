@@ -10,7 +10,8 @@ from app.attendance import get_attendance_manager
 from app.models import ClassCreate, ClassResponse, Class, User, ClassNotificationResponse
 from app.auth import get_current_teacher, get_current_student, get_current_user
 from app.database import get_db
-from datetime import datetime
+from app.websocket import get_connection_manager
+from datetime import datetime, timedelta
 import uuid
 import logging
 
@@ -374,52 +375,72 @@ async def activate_class(
 ):
     """
     Activate a class session (teacher only).
-    
+
+    IMPORTANT: Schedules automatic class end when duration expires.
+    Teacher can also manually end class before time runs out.
+
     Args:
         class_id: Class identifier
         current_user: Authenticated teacher
         db: Database instance
-        
+
     Returns:
-        Success message with session ID
+        Success message with session ID and duration
     """
     class_doc = await db.classes.find_one({"class_id": class_id})
-    
+
     if not class_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Class not found"
         )
-    
+
     if class_doc["teacher_id"] != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to activate this class"
         )
-    
+
     # Generate session ID
     session_id = f"{class_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
     session_started_at = datetime.utcnow()
-    
+    duration_minutes = class_doc.get("duration_minutes", 60)
+
     # Mark class as active
     await db.classes.update_one(
         {"_id": class_doc["_id"]},
         {"$set": {
             "is_active": True,
             "is_finished": False,
+            "auto_ended": False,  # Reset auto-end flag
             "active_session_id": session_id,
             "session_started_at": session_started_at,
             "ended_at": None,
         }}
     )
-    
-    logger.info(f"✓ Class {class_id} activated with session {session_id}")
-    
+
+    # SCHEDULE AUTOMATIC END when duration expires
+    from app.class_scheduler import get_class_scheduler
+    scheduler = get_class_scheduler()
+    await scheduler.schedule_auto_end(
+        class_id=class_id,
+        session_id=session_id,
+        duration_minutes=duration_minutes,
+        db=db
+    )
+
+    logger.info(
+        f"✓ Class {class_id} activated with session {session_id} "
+        f"(will auto-end after {duration_minutes} min)"
+    )
+
     return {
-        "message": "Class activated",
+        "message": "Class activated - will auto-end after duration expires",
         "class_id": class_id,
         "session_id": session_id,
         "started_at": session_started_at.isoformat(),
+        "duration_minutes": duration_minutes,
+        "auto_end_time": (session_started_at + timedelta(minutes=duration_minutes)).isoformat(),
     }
 
 
@@ -430,33 +451,45 @@ async def deactivate_class(
     db=Depends(get_db)
 ):
     """
-    Deactivate a class session (teacher only).
-    
+    Manually end a class session BEFORE duration expires (teacher only).
+
+    IMPORTANT: This triggers immediate attendance finalization.
+    If teacher doesn't call this, class will auto-end after duration.
+
     Args:
         class_id: Class identifier
         current_user: Authenticated teacher
         db: Database instance
-        
+
     Returns:
-        Success message
+        Success message with attendance report
+
+    Raises:
+        HTTPException: If class not found or unauthorized
     """
     class_doc = await db.classes.find_one({"class_id": class_id})
-    
+
     if not class_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Class not found"
         )
-    
+
     if class_doc["teacher_id"] != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to deactivate this class"
         )
-    
+
+    # CANCEL AUTO-END TASK if running
+    from app.class_scheduler import get_class_scheduler
+    scheduler = get_class_scheduler()
+    was_auto_end_scheduled = scheduler.cancel_auto_end(class_id)
+
     ended_at = datetime.utcnow()
     attendance_report = None
 
+    # FINALIZE ATTENDANCE IMMEDIATELY
     attendance_manager = get_attendance_manager()
     session_id = class_doc.get("active_session_id")
 
@@ -468,10 +501,29 @@ async def deactivate_class(
                 ended_at=ended_at,
                 db=db,
             )
+
+            # BROADCAST ATTENDANCE to all connected students/teachers
+            connection_manager = get_connection_manager()
+            for record in attendance_report.attendance_records:
+                await connection_manager.broadcast_attendance_status(
+                    class_id=class_id,
+                    student_id=record["student_id"],
+                    student_name=record["student_name"],
+                    status=record["attendance_status"],
+                    engagement_percentage=record["engagement_percentage"],
+                )
+
+            logger.info(
+                f"✓ Attendance finalized (manual end): "
+                f"{attendance_report.present_count} present, "
+                f"{attendance_report.absent_count} absent"
+            )
+
         except Exception as exc:
-            logger.error("Failed to finalize attendance for %s (%s): %s", class_id, session_id, exc)
+            logger.error("Failed to finalize attendance: %s", exc)
             attendance_report = None
 
+    # Mark class as finished (MANUALLY)
     await db.classes.update_one(
         {"_id": class_doc["_id"]},
         {"$set": {
@@ -479,16 +531,22 @@ async def deactivate_class(
             "is_finished": True,
             "active_session_id": None,
             "session_started_at": None,
-            "ended_at": ended_at
+            "ended_at": ended_at,
+            "auto_ended": False,  # Not auto-ended
+            "ended_reason": "Manually ended by teacher",
         }}
     )
-    
-    logger.info(f"✓ Class {class_id} deactivated and finished")
-    
+
+    logger.info(
+        f"✓ Class {class_id} manually ended by {current_user.name} "
+        f"(auto-end was {'scheduled' if was_auto_end_scheduled else 'not scheduled'})"
+    )
+
     return {
-        "message": "Class ended",
+        "message": "Class ended successfully - attendance finalized",
         "class_id": class_id,
         "ended_at": ended_at.isoformat(),
+        "manually_ended": True,
         "attendance_report": attendance_report.model_dump() if attendance_report else None
     }
 
@@ -609,6 +667,156 @@ async def delete_class(
         "message": "Class deleted successfully",
         "class_id": class_id
     }
+
+
+@router.post("/admin/check-expired", response_model=dict)
+async def check_and_end_expired_classes(
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """
+    ADMIN ENDPOINT: Manually check for expired classes and auto-end them.
+
+    This is useful for:
+    - Manual trigger if auto-end fails
+    - Testing purposes
+    - Recovery from crashes
+
+    Only teachers can call this (can later restrict to admin only).
+
+    Returns:
+        List of classes that were auto-ended
+    """
+    try:
+        expired_classes = []
+        current_time = datetime.utcnow()
+
+        # Find all active classes that have exceeded their duration
+        cursor = db.classes.find({
+            "is_active": True,
+            "session_started_at": {"$exists": True},
+            "duration_minutes": {"$exists": True}
+        })
+
+        active_classes = await cursor.to_list(length=None)
+
+        for class_doc in active_classes:
+            session_started = class_doc["session_started_at"]
+            duration_minutes = class_doc.get("duration_minutes", 60)
+            duration_seconds = duration_minutes * 60
+
+            elapsed_seconds = (current_time - session_started).total_seconds()
+
+            # Check if class duration has expired
+            if elapsed_seconds >= duration_seconds:
+                class_id = class_doc["class_id"]
+                logger.info(f"📋 Found expired class: {class_id} (elapsed: {elapsed_seconds}s, duration: {duration_seconds}s)")
+
+                # Auto-end the class
+                try:
+                    from app.class_scheduler import get_class_scheduler
+                    scheduler = get_class_scheduler()
+
+                    # Cancel auto-end task (if still exists)
+                    scheduler.cancel_auto_end(class_id)
+
+                    # Finalize attendance
+                    attendance_manager = get_attendance_manager()
+                    ended_at = datetime.utcnow()
+                    session_id = class_doc.get("active_session_id")
+
+                    if session_id:
+                        attendance_report = await attendance_manager.finalize_class_attendance(
+                            class_doc=class_doc,
+                            session_id=session_id,
+                            ended_at=ended_at,
+                            db=db,
+                        )
+
+                        # Broadcast to connected clients
+                        connection_manager = get_connection_manager()
+                        for record in attendance_report.attendance_records:
+                            await connection_manager.broadcast_attendance_status(
+                                class_id=class_id,
+                                student_id=record["student_id"],
+                                student_name=record["student_name"],
+                                status=record["attendance_status"],
+                                engagement_percentage=record["engagement_percentage"],
+                            )
+
+                    # Mark as finished
+                    await db.classes.update_one(
+                        {"_id": class_doc["_id"]},
+                        {"$set": {
+                            "is_active": False,
+                            "is_finished": True,
+                            "active_session_id": None,
+                            "session_started_at": None,
+                            "ended_at": ended_at,
+                            "auto_ended": True,
+                            "ended_reason": "Manually triggered auto-end (admin check)",
+                        }}
+                    )
+
+                    expired_classes.append({
+                        "class_id": class_id,
+                        "ended_at": ended_at.isoformat(),
+                        "elapsed_seconds": elapsed_seconds,
+                    })
+
+                    logger.info(f"✓ Auto-ended expired class: {class_id}")
+
+                except Exception as e:
+                    logger.error(f"Error auto-ending class {class_id}: {e}")
+
+        return {
+            "message": f"Checked and auto-ended {len(expired_classes)} expired classes",
+            "expired_classes": expired_classes,
+            "count": len(expired_classes)
+        }
+
+    except Exception as e:
+        logger.error(f"Error in check-expired endpoint: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error checking expired classes: {str(e)}"
+        )
+
+
+@router.get("/admin/scheduler-status", response_model=dict)
+async def get_scheduler_status(
+    current_user: User = Depends(get_current_teacher),
+):
+    """
+    ADMIN ENDPOINT: Get scheduler status information.
+
+    Shows:
+    - Number of active auto-end tasks
+    - Can be useful for debugging and monitoring
+
+    Returns:
+        Scheduler status information
+    """
+    try:
+        from app.class_scheduler import get_class_scheduler
+        scheduler = get_class_scheduler()
+
+        active_count = scheduler.get_active_classes()
+
+        logger.info(f"Scheduler status requested: {active_count} active classes")
+
+        return {
+            "message": "Scheduler status retrieved",
+            "active_auto_end_tasks": active_count,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting scheduler status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting scheduler status: {str(e)}"
+        )
 
 
 # (teacher/classes and student/classes routes moved above /{class_id} to fix route ordering)

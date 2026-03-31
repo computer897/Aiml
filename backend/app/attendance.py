@@ -206,9 +206,21 @@ class AttendanceManager:
             total_class_duration_seconds=class_duration_minutes * 60,
             started_at=datetime.utcnow()
         )
-        
+
         # Insert into database
         result = await db.attendance.insert_one(attendance.dict(by_alias=True, exclude={"id"}))
+
+        # Add face detection tracking flag (STRICT MODE)
+        attendance_doc = attendance.dict(by_alias=True, exclude={"id"})
+        attendance_doc["_id"] = result.inserted_id
+        attendance_doc["face_detected_at_least_once"] = False  # Initialize to False
+
+        # Update the record to include the flag
+        await db.attendance.update_one(
+            {"_id": result.inserted_id},
+            {"$set": {"face_detected_at_least_once": False}}
+        )
+
         attendance.id = str(result.inserted_id)
         
         # Track in active sessions
@@ -225,18 +237,19 @@ class AttendanceManager:
     ) -> Dict:
         """
         Process a webcam frame and update engagement tracking.
-        
+
         This is the core attendance logic:
         1. Detect face in frame
         2. Check if looking at screen
         3. If engaged (face present AND looking at screen), increment engagement time
-        4. Update attendance record in real-time
-        
+        4. Track that face was detected at least once (for strict attendance)
+        5. Update attendance record in real-time
+
         Args:
             frame_data: Frame data containing image and metadata
             face_detector: Face detector instance
             db: Database instance
-            
+
         Returns:
             Dictionary with detection results and updated attendance info
         """
@@ -247,21 +260,21 @@ class AttendanceManager:
                 "session_id": frame_data.session_id,
                 "student_id": frame_data.student_id
             })
-            
+
             if not attendance_doc:
                 logger.warning(f"No attendance record found for session {frame_data.session_id}")
                 return {
                     "success": False,
                     "message": "Attendance session not found"
                 }
-            
+
             # Analyze frame for face detection
             face_detected, looking_at_screen = face_detector.analyze_frame(frame_data.frame_base64)
-            
+
             # Calculate engagement time increment
             current_time = datetime.utcnow()
             session_key = f"{frame_data.session_id}_{frame_data.student_id}"
-            
+
             # Calculate time since last frame
             last_engaged_time = self.active_sessions.get(session_key)
             time_increment = 0
@@ -269,18 +282,18 @@ class AttendanceManager:
             if last_engaged_time and face_detected:
                 # Fixed increment sampling: each valid detection sample adds one interval.
                 time_increment = self.engagement_sample_seconds
-            
+
             # Update last engaged time
             self.active_sessions[session_key] = current_time
-            
+
             # Update attendance record
             new_engagement_seconds = attendance_doc["engagement_duration_seconds"] + time_increment
             total_duration = attendance_doc["total_class_duration_seconds"]
-            
+
             # Calculate engagement percentage
             engagement_percentage = (new_engagement_seconds / total_duration * 100) if total_duration > 0 else 0
-            
-            # Update database
+
+            # Update database - mark that face was detected if detected in this frame
             update_data = {
                 "last_frame_timestamp": current_time,
                 "is_face_detected": face_detected,
@@ -288,16 +301,20 @@ class AttendanceManager:
                 "engagement_duration_seconds": new_engagement_seconds,
                 "engagement_percentage": round(engagement_percentage, 2)
             }
-            
+
+            # STRICT MODE: Track if face was EVER detected
+            if face_detected:
+                update_data["face_detected_at_least_once"] = True
+
             await db.attendance.update_one(
                 {"_id": attendance_doc["_id"]},
                 {"$set": update_data}
             )
-            
+
             logger.debug(f"Frame processed for student {frame_data.student_id}: "
                         f"face={face_detected}, looking={looking_at_screen}, "
                         f"engagement={engagement_percentage:.1f}%")
-            
+
             return {
                 "success": True,
                 "face_detected": face_detected,
@@ -306,7 +323,7 @@ class AttendanceManager:
                 "engagement_seconds": new_engagement_seconds,
                 "time_increment": time_increment
             }
-            
+
         except Exception as e:
             logger.error(f"Error processing frame: {e}")
             return {
@@ -399,11 +416,15 @@ class AttendanceManager:
         for record in attendance_records:
             engagement_seconds = int(round(record.get("engagement_duration_seconds", 0) or 0))
             engagement_ratio = min(engagement_seconds / class_duration_seconds, 1) if class_duration_seconds > 0 else 0
-            attendance_status = (
-                AttendanceStatus.PRESENT.value
-                if engagement_ratio * 100 >= settings.attendance_threshold
-                else AttendanceStatus.ABSENT.value
-            )
+
+            # STRICT MODE: Use face detection requirement for live view too
+            was_face_detected = record.get("face_detected_at_least_once", False)
+            engagement_percentage = engagement_ratio * 100
+
+            if was_face_detected and engagement_percentage >= settings.attendance_threshold:
+                attendance_status = AttendanceStatus.PRESENT.value
+            else:
+                attendance_status = AttendanceStatus.ABSENT.value
 
             rows.append(self._serialize_report_row({
                 **record,
@@ -458,11 +479,23 @@ class AttendanceManager:
         for record in attendance_records:
             engagement_seconds = int(round(record.get("engagement_duration_seconds", 0) or 0))
             engagement_ratio = min(engagement_seconds / class_duration_seconds, 1) if class_duration_seconds > 0 else 0
-            attendance_status = (
-                AttendanceStatus.PRESENT
-                if engagement_ratio * 100 >= settings.attendance_threshold
-                else AttendanceStatus.ABSENT
-            )
+
+            # STRICT MODE: Require face detection for attendance
+            # - face_detected_at_least_once MUST be True to be marked PRESENT
+            # - engagement_percentage MUST be >= threshold
+            # - Both conditions required!
+            was_face_detected = record.get("face_detected_at_least_once", False)
+            engagement_percentage = engagement_ratio * 100
+
+            if was_face_detected and engagement_percentage >= settings.attendance_threshold:
+                attendance_status = AttendanceStatus.PRESENT
+                logger.info(f"✓ Student {record['student_id']}: PRESENT (face detected, engagement={engagement_percentage:.1f}%)")
+            else:
+                attendance_status = AttendanceStatus.ABSENT
+                if not was_face_detected:
+                    logger.info(f"✗ Student {record['student_id']}: ABSENT (face never detected)")
+                else:
+                    logger.info(f"✗ Student {record['student_id']}: ABSENT (low engagement={engagement_percentage:.1f}%)")
 
             final_row = self._serialize_report_row({
                 **record,
@@ -490,6 +523,7 @@ class AttendanceManager:
                 "started_at": session_started_at,
                 "ended_at": ended_at,
                 "created_at": datetime.utcnow(),
+                "face_detected_at_least_once": was_face_detected,
             }
 
             if expires_at:
@@ -503,6 +537,7 @@ class AttendanceManager:
                     "ended_at": ended_at,
                     "engagement_percentage": final_row["engagement_percentage"],
                     "status": attendance_status.value,
+                    "face_detected_at_least_once": was_face_detected,
                 }}
             )
 

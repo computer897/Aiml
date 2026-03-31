@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSoc
 from fastapi.responses import StreamingResponse
 
 from app.attendance import get_attendance_manager
+from app.attendance_excel import get_attendance_excel_exporter
 from app.auth import get_current_student, get_current_teacher, get_current_user
 from app.config import settings
 from app.database import get_db
@@ -301,7 +302,11 @@ async def process_metadata(
         "attention_score": metadata.attention_score,
         "multiple_faces_detected": metadata.multiple_faces
     }
-    
+
+    # STRICT MODE: Track if face was EVER detected (for stricter attendance validation)
+    if metadata.face_detected:
+        update_data["face_detected_at_least_once"] = True
+
     await db.attendance.update_one(
         {"_id": attendance_doc["_id"]},
         {
@@ -877,9 +882,198 @@ async def export_attendance(
     # Return CSV response
     output.seek(0)
     filename = f"attendance_{class_id}_{session_id}.csv"
-    
+
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+@router.get("/export-excel/{class_id}/{session_id}")
+async def export_attendance_excel(
+    class_id: str,
+    session_id: str,
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """
+    Export attendance data as EXCEL file (formatted with colors & summary).
+
+    Features:
+    - Professional formatting with headers
+    - Green for PRESENT, Red for ABSENT
+    - Engagement time and percentage columns
+    - Summary statistics
+    - Automatically downloaded to user's computer
+
+    Args:
+        class_id: Class identifier
+        session_id: Session identifier
+        current_user: Authenticated teacher
+        db: Database instance
+
+    Returns:
+        Excel file (.xlsx) for download
+    """
+    # Verify class exists and teacher owns it
+    class_doc = await db.classes.find_one({"class_id": class_id})
+
+    if not class_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+
+    if class_doc["teacher_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to export this class"
+        )
+
+    attendance_manager = get_attendance_manager()
+    report = await attendance_manager.get_class_attendance_report(class_id, session_id, db)
+
+    if not report.attendance_records:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No attendance records found for this session"
+        )
+
+    try:
+        # Generate Excel file
+        exporter = get_attendance_excel_exporter()
+        excel_file = exporter.generate_attendance_excel(
+            report=report.model_dump(),
+            class_doc=class_doc
+        )
+
+        # Return Excel response
+        filename = f"attendance_{class_doc.get('title', class_id)}__{session_id}.xlsx"
+        # Clean filename
+        filename = filename.replace(" ", "_").replace("/", "-")
+
+        logger.info(f"✓ Excel attendance report exported: {filename}")
+
+        return StreamingResponse(
+            iter([excel_file.getvalue()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Excel export not available: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error exporting Excel: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating Excel file: {str(e)}"
+        )
+
+
+@router.get("/export-excel-bulk/{class_id}")
+async def export_attendance_excel_bulk(
+    class_id: str,
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db),
+    limit: int = 25
+):
+    """
+    Export ALL attendance records for a class as EXCEL (multiple sheets).
+
+    One sheet per class session with:
+    - Separate sheets for each session
+    - Professional formatting
+    - Summary statistics per session
+    - Green (PRESENT) and Red (ABSENT) highlighting
+
+    Args:
+        class_id: Class identifier
+        current_user: Authenticated teacher
+        db: Database instance
+        limit: Maximum number of sessions to export
+
+    Returns:
+        Excel file (.xlsx) with multiple sheets
+    """
+    # Verify class exists and teacher owns it
+    class_doc = await db.classes.find_one({"class_id": class_id})
+
+    if not class_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+
+    if class_doc["teacher_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to export this class"
+        )
+
+    try:
+        attendance_manager = get_attendance_manager()
+
+        # Get all attendance reports for this class
+        summaries = await attendance_manager.list_class_reports(
+            class_id=class_id,
+            db=db,
+            limit=limit
+        )
+
+        if not summaries:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No attendance records found for this class"
+            )
+
+        # Fetch full reports for each summary
+        reports_list = []
+        for summary in summaries:
+            full_report = await attendance_manager.get_class_attendance_report(
+                class_id=class_id,
+                session_id=summary["session_id"],
+                db=db
+            )
+            if full_report.attendance_records:
+                reports_list.append(full_report.model_dump())
+
+        if not reports_list:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No finalized attendance records found"
+            )
+
+        # Generate bulk Excel file
+        exporter = get_attendance_excel_exporter()
+        excel_file = exporter.generate_bulk_attendance_excel(
+            reports_list=reports_list,
+            class_doc=class_doc
+        )
+
+        # Return Excel response
+        filename = f"attendance_all__{class_doc.get('title', class_id)}__{len(reports_list)}_sessions.xlsx"
+        filename = filename.replace(" ", "_").replace("/", "-")
+
+        logger.info(f"✓ Bulk Excel report exported: {filename} ({len(reports_list)} sessions)")
+
+        return StreamingResponse(
+            iter([excel_file.getvalue()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Excel export not available: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error exporting bulk Excel: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating Excel file: {str(e)}"
+        )
