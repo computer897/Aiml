@@ -5,8 +5,10 @@ import {
   Bell, ChevronRight, BookOpen, Play, AlertCircle, RefreshCw,
   Trash2, Radio
 } from 'lucide-react'
+import { io } from 'socket.io-client'
 import { classAPI, attendanceAPI } from '../services/api'
 import { notifyClassEvent, notifySuccess } from '../services/notifications'
+import { SIGNALING_URL } from '../services/webrtc'
 import DashboardLayout from '../layouts/DashboardLayout'
 import AttendanceTable from '../components/AttendanceTable'
 import CreateClassModal from '../components/CreateClassModal'
@@ -153,6 +155,35 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
   }
 
   useEffect(() => { loadTeacherData() }, [])
+
+  useEffect(() => {
+    const socket = io(SIGNALING_URL, {
+      transports: ['websocket', 'polling'],
+      withCredentials: false,
+      reconnection: true,
+    })
+
+    socket.on('attendance-ready', async (payload) => {
+      const classId = payload?.classId
+      if (!classId) return
+
+      const selectedClass = classes.find(cls => cls.class_id === classId)
+      if (!selectedClass) return
+
+      if (activeClass?.class_id !== classId) {
+        setActiveClass(selectedClass)
+      }
+
+      await hydrateAttendanceData(selectedClass, {
+        preferredSessionId: payload?.sessionId || null,
+        refreshHistory: true,
+      })
+    })
+
+    return () => {
+      socket.disconnect()
+    }
+  }, [activeClass?.class_id, classes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const classId = activeClass?.class_id
@@ -558,6 +589,9 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                                             {statusText}
                                           </span>
                                         </div>
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                                          {Math.round(student.engagement_percentage || 0)}%
+                                        </span>
                                       </div>
                                     )
                                   })}
@@ -568,6 +602,9 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
                                 <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                                   <span>
                                     {(liveEngagement?.students || []).filter((s) => s.face_detected).length} / {(liveEngagement?.students || []).length} students present
+                                  </span>
+                                  <span>
+                                    Avg engagement: {Math.round((liveEngagement?.students || []).reduce((sum, s) => sum + (s.engagement_percentage || 0), 0) / Math.max((liveEngagement?.students || []).length, 1))}%
                                   </span>
                                 </div>
                               )}

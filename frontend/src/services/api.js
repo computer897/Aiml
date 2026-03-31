@@ -271,9 +271,16 @@ export const attendanceAPI = {
     return apiRequest(`/attendance/report/${classId}`)
   },
 
+  getByClass: async (classId) => {
+    return apiRequest(`/attendance/${classId}`)
+  },
+
   listReports: async (classId, limit = 25) => {
-    const params = new URLSearchParams({ limit: String(limit) })
-    return apiRequest(`/attendance/reports/${classId}?${params.toString()}`)
+    return apiRequest(`/attendance/reports/${classId}?limit=${limit}`)
+  },
+
+  getLive: async (classId) => {
+    return apiRequest(`/attendance/live/${classId}`)
   },
 
   deleteReport: async (classId, sessionId) => {
@@ -292,10 +299,6 @@ export const attendanceAPI = {
 
   exportCsv: async (classId, sessionId) => {
     return apiDownload(`/attendance/export/${classId}/${sessionId}`)
-  },
-
-  getLive: async (classId) => {
-    return apiRequest(`/attendance/live/${classId}`)
   },
 }
 

@@ -36,6 +36,7 @@ const getSocketUrl = () => {
 }
 
 const SOCKET_URL = getSocketUrl()
+export const SIGNALING_URL = SOCKET_URL
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -80,6 +81,7 @@ export function createWebRTCManager() {
     onEngagementUpdate: null,       // (data) => {} - Teacher receives engagement updates
     onStudentEngagement: null,      // (data) => {} - Legacy alias
     onClassEnded: null,             // ({ attendance, endTime }) => {} - Teacher ends class
+    onAttendanceReady: null,        // ({ classId, sessionId, endTime }) => {} - Attendance finalized
     onAttendanceUpdate: null,       // (attendanceMap) => {} - Live join/leave updates to teacher
     onCameraStatus: null,           // ({ socketId, userId, userName, enabled }) => {} - Remote camera toggle
     // Waiting room callbacks
@@ -346,6 +348,11 @@ export function createWebRTCManager() {
     socket.on('class-ended', (data) => {
       console.log('[WebRTC] Class ended, attendance report received')
       callbacks.onClassEnded?.(data)
+    })
+
+    // Attendance finalized at class end; clients should fetch final report from API.
+    socket.on('attendance-ready', (data) => {
+      callbacks.onAttendanceReady?.(data)
     })
 
     // Remote participant toggled their camera
@@ -654,9 +661,13 @@ export function createWebRTCManager() {
   /**
    * Teacher: End the class. Server finalises attendance and sends 'class-ended' back.
    */
-  function endClass() {
+  function endClass(payload = {}) {
     if (!socket || !roomId || role !== 'teacher') return
-    socket.emit('end-class')
+    socket.emit('end-class', {
+      classId: payload.classId || roomId,
+      sessionId: payload.sessionId || null,
+      token: payload.token || null,
+    })
     console.log('[WebRTC] End-class emitted')
   }
 

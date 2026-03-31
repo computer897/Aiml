@@ -611,7 +611,22 @@ class AttendanceManager:
         if finalized_report:
             return finalized_report
 
-        return await self.build_live_class_report(class_doc, session_id, db)
+        # Important: do not compute final attendance while class is running.
+        # Final statuses are generated only when class ends.
+        return AttendanceReport(
+            class_id=class_id,
+            session_id=session_id,
+            class_title=class_doc.get("title"),
+            teacher_name=class_doc.get("teacher_name"),
+            class_date=None,
+            started_at=class_doc.get("session_started_at"),
+            ended_at=class_doc.get("ended_at"),
+            class_duration_seconds=0,
+            total_students=0,
+            present_count=0,
+            absent_count=0,
+            attendance_records=[]
+        )
 
     async def list_class_reports(
         self,

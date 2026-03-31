@@ -1064,6 +1064,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   // Attendance report (shown after teacher ends class)
   const [attendanceReport, setAttendanceReport] = useState(null)
   const [showAttendanceReport, setShowAttendanceReport] = useState(false)
+  const [isEndingClass, setIsEndingClass] = useState(false)
 
   // Face detection state (privacy-focused, browser-side only)
   const [faceTrackingActive, setFaceTrackingActive] = useState(false)
@@ -1325,8 +1326,38 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         })
       }
 
-      // Class ended – show attendance report to teacher
-      rtc.callbacks.onClassEnded = () => {}
+      // Class ended – show inline report if backend returned one.
+      rtc.callbacks.onClassEnded = (data) => {
+        if (user?.role !== 'teacher') return
+        if (data?.attendanceReport) {
+          setAttendanceReport(data.attendanceReport)
+          setShowAttendanceReport(true)
+          setIsEndingClass(false)
+        }
+        if (data?.error) {
+          alert(data.error)
+          setIsEndingClass(false)
+        }
+      }
+
+      // Attendance generated after class end; fetch persisted report.
+      rtc.callbacks.onAttendanceReady = async (data) => {
+        if (user?.role !== 'teacher') return
+        if (data?.classId && data.classId !== classData?.class_id) return
+
+        const activeSessionId = data?.sessionId || sessionId || classData?.active_session_id || initialSessionId
+        try {
+          const report = activeSessionId
+            ? await attendanceAPI.getReport(classData.class_id, activeSessionId)
+            : await attendanceAPI.getByClass(classData.class_id)
+          setAttendanceReport(report)
+          setShowAttendanceReport(true)
+        } catch (err) {
+          console.error('Failed to fetch finalized attendance:', err)
+        } finally {
+          setIsEndingClass(false)
+        }
+      }
 
       // Remote participant toggled camera visibility
       rtc.callbacks.onCameraStatus = (data) => {
@@ -1543,13 +1574,15 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
 
   // ── Calculate scheduled end time when class data is available ──
   useEffect(() => {
-    if (classData?.schedule_time && classData?.duration_minutes) {
-      const scheduleTime = new Date(classData.schedule_time)
+    if (classData?.duration_minutes) {
+      const startBase = classData?.session_started_at || classData?.schedule_time
+      if (!startBase) return
+      const scheduleTime = new Date(startBase)
       const endTime = new Date(scheduleTime.getTime() + classData.duration_minutes * 60000)
       setScheduledEndTime(endTime.getTime())
       console.log('[Classroom] Scheduled end time:', endTime.toLocaleTimeString())
     }
-  }, [classData?.schedule_time, classData?.duration_minutes])
+  }, [classData?.session_started_at, classData?.schedule_time, classData?.duration_minutes])
 
   // ── Class timer: Update elapsed and remaining time every second ──
   useEffect(() => {
@@ -1722,6 +1755,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
 
   const handleEndClass = async (isAutoEnd = false) => {
     if (user?.role !== 'teacher') return
+    if (isEndingClass) return
 
     const message = isAutoEnd
       ? 'Class duration has ended. Finalizing attendance...'
@@ -1740,35 +1774,21 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       return
     }
 
-    if (webrtcRef.current && typeof webrtcRef.current.endClass === 'function') {
-      webrtcRef.current.endClass()
-    }
+    setIsEndingClass(true)
 
     try {
-      const deactivation = await classAPI.deactivate(classData.class_id)
-      const report = deactivation?.attendance_report
-      if (report) {
-        setAttendanceReport(report)
-        setShowAttendanceReport(true)
+      const token = user?.token || JSON.parse(localStorage.getItem('user') || '{}')?.token || null
+      if (webrtcRef.current && typeof webrtcRef.current.endClass === 'function') {
+        webrtcRef.current.endClass({
+          classId: classData.class_id,
+          sessionId: activeSessionId,
+          token,
+        })
       } else {
-        let fallback = null
-        try {
-          fallback = await attendanceAPI.end({
-            classId: classData.class_id,
-            sessionId: activeSessionId,
-            endedAt: new Date().toISOString(),
-          })
-        } catch {
-        }
-
-        if (!fallback?.attendance_records) {
-          fallback = await attendanceAPI.getReport(classData.class_id, activeSessionId)
-        }
-
-        setAttendanceReport(fallback)
-        setShowAttendanceReport(true)
+        throw new Error('Class signaling is not available')
       }
     } catch (error) {
+      setIsEndingClass(false)
       alert(error.message || 'Failed to finalize attendance report')
     }
   }
@@ -1779,13 +1799,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       setFaceTrackingActive(false)
     }
     
-    // End attendance session
-    if (user?.role === 'student' && sessionId) {
-      try { await attendanceAPI.end(sessionId) } catch { /* ok */ }
-    }
-    if (user?.role === 'teacher') {
-      try { await classAPI.deactivate(classData.class_id) } catch { /* ok */ }
-    }
+    // Do not finalize attendance on leave; finalization is class-end only.
     onLeave()
   }
 

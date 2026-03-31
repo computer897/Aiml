@@ -405,35 +405,10 @@ async def end_attendance(
         logger.info(f"✓ Attendance finalized for class {payload.class_id}, session {payload.session_id}")
         return report.model_dump()
 
-    attendance = await attendance_manager.end_attendance_session(
-        session_id=payload.session_id,
-        student_id=current_user.id,
-        db=db
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Attendance is finalized only when class ends"
     )
-
-    if not attendance:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Attendance session not found"
-        )
-
-    connection_manager = get_connection_manager()
-    await connection_manager.broadcast_attendance_status(
-        class_id=attendance.class_id,
-        student_id=attendance.student_id,
-        student_name=attendance.student_name,
-        status=attendance.status,
-        engagement_percentage=attendance.engagement_percentage
-    )
-
-    logger.info(f"✓ Attendance ended for student {current_user.name}, status: {attendance.status}")
-
-    return {
-        "message": "Attendance session ended",
-        "status": attendance.status,
-        "engagement_percentage": attendance.engagement_percentage,
-        "engagement_seconds": attendance.engagement_duration_seconds
-    }
 
 
 @router.get("/report/{class_id}", response_model=AttendanceReport)
@@ -469,6 +444,21 @@ async def get_latest_attendance_report(
         absent_count=0,
         attendance_records=[]
     )
+
+
+@router.get("/{class_id}", response_model=AttendanceReport)
+async def get_attendance_by_class(
+    class_id: str,
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """
+    Return latest finalized attendance list for a class.
+
+    Alias endpoint requested by frontend integrations:
+    GET /attendance/:classId
+    """
+    return await get_latest_attendance_report(class_id=class_id, current_user=current_user, db=db)
 
 
 @router.get("/report/{class_id}/{session_id}", response_model=AttendanceReport)

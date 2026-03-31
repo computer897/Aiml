@@ -52,6 +52,7 @@ const attendanceData = {};
 
 const ENGAGEMENT_INTERVAL_SECONDS = 5;
 const ATTENDANCE_THRESHOLD_PERCENT = 70;
+const API_BASE_URL = (process.env.API_BASE_URL || process.env.FASTAPI_URL || 'http://localhost:8000').replace(/\/+$/, '');
 
 // Helper – ensure room attendance map exists
 function ensureAttendance(roomId) {
@@ -190,6 +191,30 @@ function getAllParticipantsExcept(roomId, excludeSocketId) {
     }
   });
   return all;
+}
+
+async function finalizeClassSession(classId, authToken) {
+  const response = await fetch(`${API_BASE_URL}/class/${encodeURIComponent(classId)}/deactivate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
+  });
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const message = data?.detail || data?.message || `Finalize failed (${response.status})`;
+    throw new Error(message);
+  }
+
+  return data;
 }
 
 io.on("connection", socket => {
@@ -577,18 +602,44 @@ io.on("connection", socket => {
   });
 
   // ── End Class (Teacher only) ──
-  // Finalises attendance for everyone, sends report to teacher, notifies all students.
-  socket.on("end-class", () => {
+  // Finalises attendance only when class ends (manual/auto end trigger from client).
+  socket.on("end-class", async (data = {}) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = rooms[roomId];
     if (!room || room.host !== socket.id) return;
 
-    const { attendance, summary } = buildAttendanceReport(roomId);
-    const endTime = new Date().toISOString();
+    const classId = data.classId || roomId;
+    const sessionId = data.sessionId || null;
+    const authToken = data.token || null;
+    let finalized = null;
+    let finalizeError = null;
 
-    // Send full attendance report to teacher
-    socket.emit("class-ended", { attendance, summary, endTime });
+    try {
+      finalized = await finalizeClassSession(classId, authToken);
+    } catch (err) {
+      finalizeError = err instanceof Error ? err.message : 'Failed to finalize attendance';
+      console.error(`[end-class] Finalize failed for class ${classId}:`, finalizeError);
+    }
+
+    // Notify teacher that class ended (and whether report is ready from backend).
+    socket.emit("class-ended", {
+      classId,
+      sessionId,
+      endTime: finalized?.ended_at || new Date().toISOString(),
+      attendanceReport: finalized?.attendance_report || null,
+      error: finalizeError,
+    });
+
+    // Notify dashboards and classroom clients to fetch latest attendance list.
+    const readyPayload = {
+      classId,
+      sessionId: finalized?.attendance_report?.session_id || sessionId,
+      endTime: finalized?.ended_at || new Date().toISOString(),
+      success: !finalizeError,
+    };
+    io.emit('attendance-ready', readyPayload);
+    io.to(roomId).emit('attendance-ready', readyPayload);
 
     // Notify students that the class has ended
     socket.to(roomId).emit("teacher-left", {
@@ -605,7 +656,7 @@ io.on("connection", socket => {
     rooms[roomId].waitingStudents = [];
     rooms[roomId].classStartedAt = null;
 
-    console.log(`[end-class] Teacher "${socket.userName}" ended class in room ${roomId}. ${attendance.length} students in report.`);
+    console.log(`[end-class] Teacher "${socket.userName}" ended class in room ${roomId} (classId=${classId}).`);
   });
 
   // ── Remove Student (alias: remove-student / remove-user) ──
