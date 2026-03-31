@@ -1326,16 +1326,42 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         })
       }
 
-      // Class ended – show inline report if backend returned one.
-      rtc.callbacks.onClassEnded = (data) => {
+      // Class ended - show report from payload, or fetch persisted finalized report.
+      rtc.callbacks.onClassEnded = async (data) => {
         if (user?.role !== 'teacher') return
-        if (data?.attendanceReport) {
+
+        if (data?.attendanceReport?.attendance_records) {
           setAttendanceReport(data.attendanceReport)
           setShowAttendanceReport(true)
           setIsEndingClass(false)
+          return
         }
+
         if (data?.error) {
           alert(data.error)
+          setIsEndingClass(false)
+          return
+        }
+
+        const activeSessionId = data?.sessionId || sessionId || classData?.active_session_id || initialSessionId
+        try {
+          let report = null
+          if (activeSessionId) {
+            report = await attendanceAPI.getReport(classData.class_id, activeSessionId)
+          }
+
+          // Fallback: latest finalized report for this class.
+          if (!report?.attendance_records?.length) {
+            report = await attendanceAPI.getByClass(classData.class_id)
+          }
+
+          if (report) {
+            setAttendanceReport(report)
+            setShowAttendanceReport(true)
+          }
+        } catch (err) {
+          console.error('Failed to fetch finalized attendance after class end:', err)
+        } finally {
           setIsEndingClass(false)
         }
       }
@@ -1347,9 +1373,14 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
 
         const activeSessionId = data?.sessionId || sessionId || classData?.active_session_id || initialSessionId
         try {
-          const report = activeSessionId
-            ? await attendanceAPI.getReport(classData.class_id, activeSessionId)
-            : await attendanceAPI.getByClass(classData.class_id)
+          let report = null
+          if (activeSessionId) {
+            report = await attendanceAPI.getReport(classData.class_id, activeSessionId)
+          }
+          if (!report?.attendance_records?.length) {
+            report = await attendanceAPI.getByClass(classData.class_id)
+          }
+
           setAttendanceReport(report)
           setShowAttendanceReport(true)
         } catch (err) {
@@ -1970,6 +2001,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
             setShowAttendanceReport(false)
             onLeave()
           }}
+          autoDownload={true}
         />
       )}
 

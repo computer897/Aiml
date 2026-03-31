@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { X, Download, Users, CheckCircle, AlertCircle, Percent } from 'lucide-react'
 import { attendanceAPI } from '../services/api'
 
@@ -13,8 +14,9 @@ import { attendanceAPI } from '../services/api'
  *   classId  – classroom id for CSV export
  *   sessionId – finalized session id for CSV export
  *   onClose  – called when the user dismisses the modal
+ *   autoDownload – (optional) if true, automatically download CSV when modal appears
  */
-function AttendanceReportModal({ report = [], endTime, classTitle, classId, sessionId, onClose }) {
+function AttendanceReportModal({ report = [], endTime, classTitle, classId, sessionId, onClose, autoDownload = false }) {
   const endDate = endTime ? new Date(endTime) : new Date()
 
   // ── Summary stats ──
@@ -22,6 +24,7 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
   const presentCount = report.filter(r => r.attendance_status === 'present').length
   const absentCount = report.filter(r => r.attendance_status === 'absent').length
   const attendanceRate = total > 0 ? Math.round((presentCount / total) * 100) : 0
+
   // ── Engagement badge styling ──
   const engagementStyle = (status) => {
     switch (status) {
@@ -49,6 +52,13 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
       alert(error.message || 'Failed to download attendance report')
     }
   }
+
+  // ── Auto-download CSV on modal appearance ──
+  useEffect(() => {
+    if (autoDownload && classId && sessionId) {
+      handleDownloadCSV()
+    }
+  }, [autoDownload, classId, sessionId])
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
