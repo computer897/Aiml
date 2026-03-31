@@ -40,6 +40,13 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
     } catch (e) {
       console.error('Error loading data from localStorage:', e)
     }
+
+    // Poll for class status updates every 5 seconds to detect finished classes
+    const classRefreshInterval = setInterval(() => {
+      loadEnrolledClasses()
+    }, 5000)
+
+    return () => clearInterval(classRefreshInterval)
   }, [])
 
   const loadEnrolledClasses = async () => {

@@ -187,6 +187,7 @@ function WaitingRoom({ classData, onClassStarted, onLeave }) {
 
   useEffect(() => {
     let active = true
+    let pollCount = 0
     const poll = async () => {
       while (active) {
         try {
@@ -196,7 +197,10 @@ function WaitingRoom({ classData, onClassStarted, onLeave }) {
             return
           }
         } catch { /* ignore */ }
-        await new Promise(r => setTimeout(r, 5000))
+        pollCount++
+        // Poll every 1 second for first 30 attempts (30 sec), then every 5 sec
+        const delay = pollCount <= 30 ? 1000 : 5000
+        await new Promise(r => setTimeout(r, delay))
       }
     }
     poll()
@@ -2351,22 +2355,54 @@ function Classroom({ user }) {
   const [joinSettings, setJoinSettings] = useState(null)
 
   useEffect(() => {
+    let active = true
+    let pollCount = 0
+
     const fetchClass = async () => {
       try {
         const data = await classAPI.get(id)
+        if (!active) return
+        
         setClassData(data)
         setIsLive(data.is_active)
         // Check if class has ended (was active but now finished)
         setIsFinished(data.is_finished === true || data.status === 'finished' || data.status === 'ended')
       } catch (err) {
-        alert('Class not found: ' + err.message)
-        navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')
+        if (active) {
+          alert('Class not found: ' + err.message)
+          navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')
+        }
       } finally {
-        setLoading(false)
+        if (active) setLoading(false)
       }
     }
-    fetchClass()
-  }, [id, navigate, user.role])
+
+    const startPolling = async () => {
+      await fetchClass() // Fetch immediately
+      
+      // Poll for status changes every 3 seconds while in classroom
+      while (active && hasJoined) {
+        await new Promise(r => setTimeout(r, 3000))
+        if (active && hasJoined) {
+          try {
+            const data = await classAPI.get(id)
+            if (active) {
+              setClassData(data)
+              setIsLive(data.is_active)
+              // Detect when class becomes finished
+              const becameFinished = data.is_finished === true || data.status === 'finished' || data.status === 'ended'
+              if (becameFinished && !isFinished) {
+                setIsFinished(true)
+              }
+            }
+          } catch { /* continue polling */ }
+        }
+      }
+    }
+
+    startPolling()
+    return () => { active = false }
+  }, [id, navigate, user.role, hasJoined, isFinished])
 
   const handleLeave = useCallback(() => {
     navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')

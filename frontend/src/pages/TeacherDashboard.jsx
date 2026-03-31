@@ -154,7 +154,16 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
     return `${Math.max(1, Math.round(seconds / 60))} min`
   }
 
-  useEffect(() => { loadTeacherData() }, [])
+  useEffect(() => { 
+    loadTeacherData()
+    
+    // Poll for class status updates every 5 seconds to detect finished classes
+    const classRefreshInterval = setInterval(() => {
+      loadTeacherData()
+    }, 5000)
+
+    return () => clearInterval(classRefreshInterval)
+  }, [])
 
   useEffect(() => {
     const socket = io(SIGNALING_URL, {
