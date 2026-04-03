@@ -1070,9 +1070,6 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   const [showAttendanceReport, setShowAttendanceReport] = useState(false)
   const [isEndingClass, setIsEndingClass] = useState(false)
 
-  // Unified class lifecycle state (prevents auto-close on errors)
-  const [classStatus, setClassStatus] = useState('live') // 'idle' | 'live' | 'ended'
-
   // Face detection state (privacy-focused, browser-side only)
   const [faceTrackingActive, setFaceTrackingActive] = useState(false)
   const [lastDetection, setLastDetection] = useState(null)
@@ -1124,41 +1121,6 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       setSessionId(activeSessionId)
     }
   }, [classData?.active_session_id, initialSessionId, sessionId])
-
-  // ── Periodic backend state sync (every 30 seconds) ──────────────────────────
-  // Verifies class status matches backend to prevent stuck UI states
-  useEffect(() => {
-    if (user?.role !== 'teacher' || !classData?.class_id) return
-
-    const syncInterval = setInterval(async () => {
-      try {
-        const response = await classAPI.get(classData.class_id)
-
-        // Force UI update if backend state differs
-        if (response.is_finished && classStatus === 'live') {
-          console.warn('[Classroom] Backend says class is finished, forcing UI update')
-          setClassStatus('ended')
-        } else if (!response.is_finished && classStatus === 'ended') {
-          console.warn('[Classroom] Backend says class is live, forcing UI update')
-          setClassStatus('live')
-        }
-
-        // Update scheduled end time from backend
-        if (response.session_started_at && response.duration_minutes) {
-          const startTime = new Date(response.session_started_at).getTime()
-          const endTime = startTime + (response.duration_minutes * 60 * 1000)
-          setScheduledEndTime(endTime)
-        }
-
-        console.log('[Classroom] State sync: UI status =', classStatus, ', Backend is_finished =', response.is_finished)
-      } catch (error) {
-        console.warn('[Classroom] State sync failed (will retry):', error.message)
-        // Continue - don't crash on sync failure, next sync will try again
-      }
-    }, 30000) // Every 30 seconds
-
-    return () => clearInterval(syncInterval)
-  }, [classData?.class_id, user?.role, classStatus])
 
   // ── Real-time engagement detection hook (students only) ──────────────────
   // Runs face detection every 5 seconds when the student is approved.
@@ -1753,13 +1715,6 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
     }
 
     const checkEndTime = setInterval(() => {
-      // Guard: Only auto-end if class is still marked as live
-      if (classStatus !== 'live') {
-        console.log('[Classroom] Skipping auto-end: class is not live (status=' + classStatus + ')')
-        clearInterval(checkEndTime)
-        return
-      }
-
       if (Date.now() >= scheduledEndTime) {
         console.log('[Classroom] Class duration expired - auto-ending class')
         handleEndClass(true) // Pass flag to indicate auto-end
@@ -1768,7 +1723,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
     }, 5000) // Check every 5 seconds
 
     return () => clearInterval(checkEndTime)
-  }, [user?.role, scheduledEndTime, classData?.is_active, classStatus]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.role, scheduledEndTime, classData?.is_active]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Show warning 5 minutes before class ends (teacher only) ──
   useEffect(() => {
@@ -1900,18 +1855,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
 
   const handleEndClass = async (isAutoEnd = false) => {
     if (user?.role !== 'teacher') return
-
-    // Guard 1: Already ending
-    if (isEndingClass) {
-      console.warn('[EndClass] Already ending, ignoring duplicate request')
-      return
-    }
-
-    // Guard 2: Already ended
-    if (classStatus === 'ended') {
-      console.warn('[EndClass] Class already ended, ignoring')
-      return
-    }
+    if (isEndingClass) return
 
     const message = isAutoEnd
       ? 'Class duration has ended. Finalizing attendance...'
@@ -1931,7 +1875,6 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
     }
 
     setIsEndingClass(true)
-    setClassStatus('ended') // Mark as ended immediately
 
     try {
       const token = user?.token || JSON.parse(localStorage.getItem('user') || '{}')?.token || null
@@ -1941,14 +1884,11 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           sessionId: activeSessionId,
           token,
         })
-        console.log('[EndClass] Class end initiated successfully')
       } else {
         throw new Error('Class signaling is not available')
       }
     } catch (error) {
-      console.error('[EndClass] Failed:', error.message)
       setIsEndingClass(false)
-      setClassStatus('live') // Revert on error
       alert(error.message || 'Failed to finalize attendance report')
     }
   }

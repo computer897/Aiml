@@ -14,7 +14,7 @@ function DashboardLayout({ children, user, onLogout, onUserUpdate, title }) {
     : children
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
+    <div className="min-h-screen surface-base transition-colors">
       {/* Sidebar */}
       <Sidebar
         collapsed={sidebarCollapsed}

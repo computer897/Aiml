@@ -1,6 +1,8 @@
 // API Base URL - uses VITE_API_URL env var in production, falls back to localhost for dev
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'https://aiml-1-rjdv.onrender.com').replace(/\/+$/, '')
 
+console.log('[API] Configured API Base URL:', API_BASE_URL)
+
 // Helper function to get auth token
 const getAuthToken = () => {
   const user = localStorage.getItem('user')
@@ -11,8 +13,8 @@ const getAuthToken = () => {
   return null
 }
 
-// Helper function for API requests
-const apiRequest = async (endpoint, options = {}) => {
+// Helper function for API requests with retry logic
+const apiRequest = async (endpoint, options = {}, retryCount = 0, maxRetries = 2) => {
   const token = getAuthToken()
   const headers = {
     'Content-Type': 'application/json',
@@ -25,15 +27,19 @@ const apiRequest = async (endpoint, options = {}) => {
 
   try {
     const fullUrl = `${API_BASE_URL}${endpoint}`
-    console.log('API Request:', {
-      method: options.method || 'GET',
+    const method = options.method || 'GET'
+    
+    console.log(`[API] Request (attempt ${retryCount + 1}/${maxRetries + 1}):`, {
+      method,
       url: fullUrl,
-      hasAuth: !!token
+      hasAuth: !!token,
+      timestamp: new Date().toISOString()
     })
     
     const response = await fetch(fullUrl, {
       ...options,
       headers,
+      timeout: 15000 // 15 second timeout
     })
 
     const data = await response.json()
@@ -41,7 +47,7 @@ const apiRequest = async (endpoint, options = {}) => {
     if (!response.ok) {
       // Handle authentication errors - token expired or invalid
       if (response.status === 401) {
-        // Clear stored user data and redirect to login
+        console.error('[API] Authentication failed - clearing session')
         localStorage.removeItem('user')
         window.location.href = '/login'
         throw new Error('Session expired. Please log in again.')
@@ -56,14 +62,44 @@ const apiRequest = async (endpoint, options = {}) => {
           .map((err) => err.msg || JSON.stringify(err))
           .join('. ')
       }
-      console.error('API Error Response:', { status: response.status, detail: data.detail })
+      
+      console.error('[API] Error Response:', { 
+        status: response.status, 
+        statusText: response.statusText,
+        detail: data.detail,
+        message,
+        endpoint,
+        url: fullUrl
+      })
+      
+      // Retry on 5xx server errors
+      if (response.status >= 500 && retryCount < maxRetries) {
+        console.warn(`[API] Server error (${response.status}), retrying...`)
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)))
+        return apiRequest(endpoint, options, retryCount + 1, maxRetries)
+      }
+      
       throw new Error(message)
     }
 
-    console.log('API Response Success:', { endpoint, status: response.status })
+    console.log('[API] Response Success:', { endpoint, status: response.status, timestamp: new Date().toISOString() })
     return data
   } catch (error) {
-    console.error('API Error:', { endpoint, error: error.message })
+    console.error('[API] Error:', { 
+      endpoint, 
+      error: error.message,
+      errorType: error.constructor.name,
+      retryCount,
+      timestamp: new Date().toISOString()
+    })
+    
+    // Retry on network errors
+    if (error.message.includes('fetch') && retryCount < maxRetries) {
+      console.warn(`[API] Network error, retrying... (attempt ${retryCount + 1}/${maxRetries})`)
+      await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)))
+      return apiRequest(endpoint, options, retryCount + 1, maxRetries)
+    }
+    
     // Ensure we always throw an Error with a string message
     if (error instanceof Error) {
       throw error
