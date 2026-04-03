@@ -51,9 +51,10 @@ async def create_class(
     # Check if class_id already exists
     existing_class = await db.classes.find_one({"class_id": class_data.class_id})
     if existing_class:
+        logger.warning(f"Duplicate class_id attempted: {class_data.class_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Class ID already exists"
+            detail=f"Class ID '{class_data.class_id}' already exists. Please use a different Class ID."
         )
     
     # Create class document with multi-college fields auto-assigned from teacher
@@ -68,6 +69,7 @@ async def create_class(
         "schedule_time": class_data.schedule_time,
         "duration_minutes": class_data.duration_minutes,
         "is_active": False,
+        "is_finished": False,  # Explicitly set to ensure it's always present
         "enrolled_students": [],
         "created_at": datetime.utcnow(),
         # Multi-college system fields (internal use only)

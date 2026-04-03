@@ -24,7 +24,14 @@ const apiRequest = async (endpoint, options = {}) => {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const fullUrl = `${API_BASE_URL}${endpoint}`
+    console.log('API Request:', {
+      method: options.method || 'GET',
+      url: fullUrl,
+      hasAuth: !!token
+    })
+    
+    const response = await fetch(fullUrl, {
       ...options,
       headers,
     })
@@ -49,12 +56,14 @@ const apiRequest = async (endpoint, options = {}) => {
           .map((err) => err.msg || JSON.stringify(err))
           .join('. ')
       }
+      console.error('API Error Response:', { status: response.status, detail: data.detail })
       throw new Error(message)
     }
 
+    console.log('API Response Success:', { endpoint, status: response.status })
     return data
   } catch (error) {
-    console.error('API Error:', error)
+    console.error('API Error:', { endpoint, error: error.message })
     // Ensure we always throw an Error with a string message
     if (error instanceof Error) {
       throw error
@@ -156,6 +165,12 @@ export const classAPI = {
 
   getStudentNotifications: async () => {
     return apiRequest('/class/student/notifications')
+  },
+
+  delete: async (classId) => {
+    return apiRequest(`/class/${classId}`, {
+      method: 'DELETE',
+    })
   },
 }
 

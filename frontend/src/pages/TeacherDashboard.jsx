@@ -313,7 +313,15 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
         schedule_time: new Date(formData.scheduleTime).toISOString(),
         duration_minutes: parseInt(formData.duration),
       }
+      
+      console.log('Creating class with data:', classData)
       const response = await classAPI.create(classData)
+      console.log('Class created successfully:', response)
+      
+      // Verify response has required fields
+      if (!response || !response.class_id) {
+        throw new Error('Invalid response from server - class not created properly')
+      }
       
       // Send notification about new class
       notifyClassEvent(
@@ -323,27 +331,58 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
       notifySuccess('Success', `Classroom "${response.title}" created successfully!`)
       
       setIsModalOpen(false)
+      
+      // Refresh class list after successful creation
       await loadTeacherData()
-    } catch (error) { alert('Failed to create class: ' + error.message) } finally { setLoading(false) }
+      
+    } catch (error) { 
+      console.error('Error creating class:', error)
+      alert('Failed to create class: ' + (error.message || 'Unknown error')) 
+    } finally { 
+      setLoading(false) 
+    }
   }
 
   const handleStartClass = async () => {
     if (classes.length === 0) return alert('Please create a class first!')
+    if (!classes[0]) return alert('Invalid class data')
+    
     try {
+      console.log('Starting class:', classes[0].class_id)
       const response = await classAPI.activate(classes[0].class_id)
+      console.log('Class activated:', response)
+      
+      if (!response || !response.session_id) {
+        throw new Error('Invalid response from server - session not created')
+      }
+      
       navigate(`/classroom/${classes[0].class_id}`, {
         state: { sessionId: response.session_id, classData: classes[0] },
       })
-    } catch (error) { alert('Failed to activate class: ' + error.message) }
+    } catch (error) { 
+      console.error('Error starting class:', error)
+      alert('Failed to activate class: ' + (error.message || 'Unknown error')) 
+    }
   }
 
   const handleDeleteClass = async (classId) => {
     if (!window.confirm('Are you sure you want to delete this class? This action cannot be undone.')) return
     setLoading(true)
     try {
+      console.log('Deleting class:', classId)
       await classAPI.delete(classId)
+      console.log('Class deleted successfully')
+      
+      notifySuccess('Success', 'Class deleted successfully')
+      
+      // Refresh class list after deletion
       await loadTeacherData()
-    } catch (error) { alert('Failed to delete class: ' + error.message) } finally { setLoading(false) }
+    } catch (error) { 
+      console.error('Error deleting class:', error)
+      alert('Failed to delete class: ' + (error.message || 'Unknown error')) 
+    } finally { 
+      setLoading(false) 
+    }
   }
 
   const colorMap = {
