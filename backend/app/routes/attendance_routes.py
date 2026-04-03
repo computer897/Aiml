@@ -416,6 +416,57 @@ async def end_attendance(
     )
 
 
+# IMPORTANT: /report/{class_id}/{session_id} MUST be defined BEFORE /report/{class_id}
+# to ensure proper route matching in FastAPI (specific routes before general ones)
+@router.get("/report/{class_id}/{session_id}", response_model=AttendanceReport)
+async def get_attendance_report(
+    class_id: str,
+    session_id: str,
+    current_user: User = Depends(get_current_teacher),
+    db=Depends(get_db)
+):
+    """
+    Get attendance report for a class session (teacher only).
+    
+    Args:
+        class_id: Class identifier
+        session_id: Session identifier
+        current_user: Authenticated teacher
+        db: Database instance
+        
+    Returns:
+        Comprehensive attendance report
+        
+    Raises:
+        HTTPException: If class not found or unauthorized
+    """
+    # Verify class exists and teacher owns it
+    class_doc = await db.classes.find_one({"class_id": class_id})
+    
+    if not class_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+    
+    if class_doc["teacher_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view this report"
+        )
+    
+    attendance_manager = get_attendance_manager()
+    report = await attendance_manager.get_class_attendance_report(
+        class_id=class_id,
+        session_id=session_id,
+        db=db
+    )
+    
+    logger.info(f"✓ Attendance report generated for class {class_id}, session {session_id}")
+    
+    return report
+
+
 @router.get("/report/{class_id}", response_model=AttendanceReport)
 async def get_latest_attendance_report(
     class_id: str,
@@ -464,55 +515,6 @@ async def get_attendance_by_class(
     GET /attendance/:classId
     """
     return await get_latest_attendance_report(class_id=class_id, current_user=current_user, db=db)
-
-
-@router.get("/report/{class_id}/{session_id}", response_model=AttendanceReport)
-async def get_attendance_report(
-    class_id: str,
-    session_id: str,
-    current_user: User = Depends(get_current_teacher),
-    db=Depends(get_db)
-):
-    """
-    Get attendance report for a class session (teacher only).
-    
-    Args:
-        class_id: Class identifier
-        session_id: Session identifier
-        current_user: Authenticated teacher
-        db: Database instance
-        
-    Returns:
-        Comprehensive attendance report
-        
-    Raises:
-        HTTPException: If class not found or unauthorized
-    """
-    # Verify class exists and teacher owns it
-    class_doc = await db.classes.find_one({"class_id": class_id})
-    
-    if not class_doc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Class not found"
-        )
-    
-    if class_doc["teacher_id"] != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view this report"
-        )
-    
-    attendance_manager = get_attendance_manager()
-    report = await attendance_manager.get_class_attendance_report(
-        class_id=class_id,
-        session_id=session_id,
-        db=db
-    )
-    
-    logger.info(f"✓ Attendance report generated for class {class_id}, session {session_id}")
-    
-    return report
 
 
 @router.get("/reports/{class_id}", response_model=List[AttendanceReportSummary])
