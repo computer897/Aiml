@@ -1070,6 +1070,9 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   const [showAttendanceReport, setShowAttendanceReport] = useState(false)
   const [isEndingClass, setIsEndingClass] = useState(false)
 
+  // Unified class lifecycle state (prevents auto-close on errors)
+  const [classStatus, setClassStatus] = useState('live') // 'idle' | 'live' | 'ended'
+
   // Face detection state (privacy-focused, browser-side only)
   const [faceTrackingActive, setFaceTrackingActive] = useState(false)
   const [lastDetection, setLastDetection] = useState(null)
@@ -1121,6 +1124,41 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       setSessionId(activeSessionId)
     }
   }, [classData?.active_session_id, initialSessionId, sessionId])
+
+  // ── Periodic backend state sync (every 30 seconds) ──────────────────────────
+  // Verifies class status matches backend to prevent stuck UI states
+  useEffect(() => {
+    if (user?.role !== 'teacher' || !classData?.class_id) return
+
+    const syncInterval = setInterval(async () => {
+      try {
+        const response = await classAPI.get(classData.class_id)
+
+        // Force UI update if backend state differs
+        if (response.is_finished && classStatus === 'live') {
+          console.warn('[Classroom] Backend says class is finished, forcing UI update')
+          setClassStatus('ended')
+        } else if (!response.is_finished && classStatus === 'ended') {
+          console.warn('[Classroom] Backend says class is live, forcing UI update')
+          setClassStatus('live')
+        }
+
+        // Update scheduled end time from backend
+        if (response.session_started_at && response.duration_minutes) {
+          const startTime = new Date(response.session_started_at).getTime()
+          const endTime = startTime + (response.duration_minutes * 60 * 1000)
+          setScheduledEndTime(endTime)
+        }
+
+        console.log('[Classroom] State sync: UI status =', classStatus, ', Backend is_finished =', response.is_finished)
+      } catch (error) {
+        console.warn('[Classroom] State sync failed (will retry):', error.message)
+        // Continue - don't crash on sync failure, next sync will try again
+      }
+    }, 30000) // Every 30 seconds
+
+    return () => clearInterval(syncInterval)
+  }, [classData?.class_id, user?.role, classStatus])
 
   // ── Real-time engagement detection hook (students only) ──────────────────
   // Runs face detection every 5 seconds when the student is approved.
@@ -1175,6 +1213,17 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       rtc.callbacks.onConnectionStateChange = (state) => {
         console.log('[Classroom] Connection state:', state)
         setConnectionState(state)
+        
+        // Show user-friendly error messages based on connection state
+        if (state === 'error') {
+          console.error('[Classroom] WebRTC connection error detected')
+          alert('Connection error: Failed to connect to the classroom. Please check:\n1. Your internet connection\n2. The backend server is running\n3. The signaling server is running\n\nTry reloading the page.')
+        } else if (state === 'disconnected') {
+          console.warn('[Classroom] WebRTC connection disconnected')
+          // Don't show alert for disconnection - it's expected on leave
+        } else if (state === 'connected') {
+          console.log('[Classroom] WebRTC connection successful')
+        }
       }
 
       rtc.callbacks.onRemoteStream = (socketId, remoteStream, userInfo) => {
@@ -1338,6 +1387,21 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           setAttendanceReport(data.attendanceReport)
           setShowAttendanceReport(true)
           setIsEndingClass(false)
+          
+          // Deactivate the class on backend after getting attendance report
+          try {
+            await classAPI.deactivate(classData.class_id)
+            console.log('[Classroom] Class deactivated on backend')
+            // Update local state to mark class as finished
+            setClassData(prev => ({
+              ...prev,
+              is_active: false,
+              is_finished: true,
+              status: 'finished'
+            }))
+          } catch (err) {
+            console.error('[Classroom] Failed to deactivate class:', err)
+          }
           return
         }
 
@@ -1367,6 +1431,21 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           console.error('Failed to fetch finalized attendance after class end:', err)
         } finally {
           setIsEndingClass(false)
+          
+          // Deactivate the class on backend after attempting to fetch report
+          try {
+            await classAPI.deactivate(classData.class_id)
+            console.log('[Classroom] Class deactivated on backend')
+            // Update local state to mark class as finished
+            setClassData(prev => ({
+              ...prev,
+              is_active: false,
+              is_finished: true,
+              status: 'finished'
+            }))
+          } catch (err) {
+            console.error('[Classroom] Failed to deactivate class:', err)
+          }
         }
       }
 
@@ -1571,21 +1650,45 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
 
       // Join the room
       if (stream) {
-        rtc.joinRoom(
-          classData.class_id,
-          user?.role || 'student',
-          user?.id || user?._id,
-          user?.name,
-          stream
-        )
+        try {
+          console.log('[Classroom] Attempting to join WebRTC room:', {
+            classId: classData.class_id,
+            role: user?.role,
+            userId: user?.id || user?._id
+          })
+          
+          rtc.joinRoom(
+            classData.class_id,
+            user?.role || 'student',
+            user?.id || user?._id,
+            user?.name,
+            stream
+          )
+          
+          console.log('[Classroom] Successfully called joinRoom')
+        } catch (err) {
+          console.error('[Classroom] Error joining room:', err)
+          alert(`Failed to connect to classroom: ${err.message}. Please check your connection and try again.`)
+        }
+      } else {
+        console.error('[Classroom] No stream available for WebRTC join')
+        alert('Failed to access camera/microphone. Please check permissions and try again.')
       }
 
       // Teacher: activate class
       if (user?.role === 'teacher') {
         try {
+          console.log('[Classroom] Activating class:', classData.class_id)
           await classAPI.activate(classData.class_id)
+          console.log('[Classroom] Class activated successfully')
         } catch (err) {
-          console.error('Failed to activate class:', err)
+          console.error('[Classroom] Failed to activate class:', {
+            error: err.message,
+            classId: classData.class_id,
+            timestamp: new Date().toISOString()
+          })
+          // Show user-friendly error but don't block classroom
+          alert(`Warning: Could not fully activate class session. Some features may not work. Error: ${err.message}`)
         }
       }
 
@@ -1650,6 +1753,13 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
     }
 
     const checkEndTime = setInterval(() => {
+      // Guard: Only auto-end if class is still marked as live
+      if (classStatus !== 'live') {
+        console.log('[Classroom] Skipping auto-end: class is not live (status=' + classStatus + ')')
+        clearInterval(checkEndTime)
+        return
+      }
+
       if (Date.now() >= scheduledEndTime) {
         console.log('[Classroom] Class duration expired - auto-ending class')
         handleEndClass(true) // Pass flag to indicate auto-end
@@ -1658,7 +1768,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
     }, 5000) // Check every 5 seconds
 
     return () => clearInterval(checkEndTime)
-  }, [user?.role, scheduledEndTime, classData?.is_active]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.role, scheduledEndTime, classData?.is_active, classStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Show warning 5 minutes before class ends (teacher only) ──
   useEffect(() => {
@@ -1790,7 +1900,18 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
 
   const handleEndClass = async (isAutoEnd = false) => {
     if (user?.role !== 'teacher') return
-    if (isEndingClass) return
+
+    // Guard 1: Already ending
+    if (isEndingClass) {
+      console.warn('[EndClass] Already ending, ignoring duplicate request')
+      return
+    }
+
+    // Guard 2: Already ended
+    if (classStatus === 'ended') {
+      console.warn('[EndClass] Class already ended, ignoring')
+      return
+    }
 
     const message = isAutoEnd
       ? 'Class duration has ended. Finalizing attendance...'
@@ -1810,6 +1931,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
     }
 
     setIsEndingClass(true)
+    setClassStatus('ended') // Mark as ended immediately
 
     try {
       const token = user?.token || JSON.parse(localStorage.getItem('user') || '{}')?.token || null
@@ -1819,11 +1941,14 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           sessionId: activeSessionId,
           token,
         })
+        console.log('[EndClass] Class end initiated successfully')
       } else {
         throw new Error('Class signaling is not available')
       }
     } catch (error) {
+      console.error('[EndClass] Failed:', error.message)
       setIsEndingClass(false)
+      setClassStatus('live') // Revert on error
       alert(error.message || 'Failed to finalize attendance report')
     }
   }

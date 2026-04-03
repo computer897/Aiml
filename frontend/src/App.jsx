@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { ThemeProvider } from './context/ThemeContext'
+
+// Import old pages
 import Login from './pages/Login'
 import SignUp from './pages/SignUp'
 import StudentDashboard from './pages/StudentDashboard'
@@ -9,6 +11,14 @@ import Classroom from './pages/Classroom'
 import AnnouncementsPage from './pages/AnnouncementsPage'
 import DocumentsPage from './pages/DocumentsPage'
 import { PWAInstallBanner, OfflineIndicator, UpdateBanner } from './components/PWAInstallBanner'
+
+// Validate API URL on app initialization
+const apiUrl = import.meta.env.VITE_API_URL
+if (!apiUrl) {
+  console.warn('[STARTUP] VITE_API_URL not set, using fallback: https://aiml-1-rjdv.onrender.com')
+} else {
+  console.log('[STARTUP] API configured:', apiUrl)
+}
 
 function App() {
   const [user, setUser] = useState(() => {
@@ -38,6 +48,7 @@ function App() {
         
         <Routes>
           <Route path="/" element={user ? <Navigate to={user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard'} /> : <Navigate to="/login" />} />
+          
           <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to={user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard'} />} />
           <Route path="/signup" element={!user ? <SignUp setUser={setUser} /> : <Navigate to={user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard'} />} />
           <Route 

@@ -122,6 +122,7 @@ export function createWebRTCManager() {
     socket.on('connect_error', (error) => {
       console.error('[WebRTC] Connection error:', error.message)
       console.error('[WebRTC] Make sure signaling server is running at:', SOCKET_URL)
+      console.warn('[WebRTC] Socket connection unstable - retrying automatically via Socket.IO backoff. Class will NOT auto-close.')
       callbacks.onConnectionStateChange?.('error')
     })
 
