@@ -5,7 +5,7 @@ import {
   HelpCircle, Users, Monitor, Loader2, Clock,
   Shield, AlertCircle, MonitorUp, Hand, X, UserX, Eye
 } from 'lucide-react'
-import { classAPI, attendanceAPI, createWebSocket, webcamUtils } from '../services/api'
+import { classAPI, attendanceAPI, createWebSocket, webcamUtils, healthAPI } from '../services/api'
 import { createWebRTCManager } from '../services/webrtc'
 import { createFaceTracker, generateAttendanceMetadata, loadFaceDetectionModels } from '../services/faceDetection'
 import EngagementList from '../components/EngagementList'
@@ -1098,6 +1098,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
 
   // Connection state for debugging
   const [connectionState, setConnectionState] = useState('connecting')
+  const [error, setError] = useState(null) // Error message display
 
   // WebRTC state
   const [remoteStreams, setRemoteStreams] = useState({})
@@ -1175,16 +1176,18 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       rtc.callbacks.onConnectionStateChange = (state) => {
         console.log('[Classroom] Connection state:', state)
         setConnectionState(state)
-        
+
         // Show user-friendly error messages based on connection state
         if (state === 'error') {
-          console.error('[Classroom] WebRTC connection error detected')
-          alert('Connection error: Failed to connect to the classroom. Please check:\n1. Your internet connection\n2. The backend server is running\n3. The signaling server is running\n\nTry reloading the page.')
+          console.warn('[Classroom] WebRTC connection error - WebSocket will auto-reconnect via backoff')
+          setError('Connection temporarily unstable - reconnecting...')
+          // Don't exit - Socket.IO will auto-reconnect
         } else if (state === 'disconnected') {
-          console.warn('[Classroom] WebRTC connection disconnected')
-          // Don't show alert for disconnection - it's expected on leave
+          console.warn('[Classroom] WebRTC connection disconnected - Socket.IO will auto-reconnect')
+          setError('Reconnecting to classroom...')
         } else if (state === 'connected') {
-          console.log('[Classroom] WebRTC connection successful')
+          setError(null) // Clear error on successful connection
+          console.log('[Classroom] WebRTC connection restored')
         }
       }
 
@@ -1368,7 +1371,8 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         }
 
         if (data?.error) {
-          alert(data.error)
+          console.warn('[Classroom] Server error ending class:', data.error)
+          setError(data.error)
           setIsEndingClass(false)
           return
         }
@@ -1576,10 +1580,10 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
               try {
                 await attendanceAPI.submitMetadata(metadata)
               } catch (err) {
-                console.error('[FaceTracking] Failed to submit metadata:', err)
+                console.debug('[FaceTracking] Metadata submission failed (will retry):', err.message)
               }
             },
-            5000
+            10000
           )
 
           faceTrackerRef.current = tracker
@@ -1630,11 +1634,11 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           console.log('[Classroom] Successfully called joinRoom')
         } catch (err) {
           console.error('[Classroom] Error joining room:', err)
-          alert(`Failed to connect to classroom: ${err.message}. Please check your connection and try again.`)
+          setError(`Failed to connect to classroom: ${err.message}`)
         }
       } else {
         console.error('[Classroom] No stream available for WebRTC join')
-        alert('Failed to access camera/microphone. Please check permissions and try again.')
+        setError('Failed to access camera/microphone. Please check permissions.')
       }
 
       // Teacher: activate class
@@ -1644,13 +1648,13 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           await classAPI.activate(classData.class_id)
           console.log('[Classroom] Class activated successfully')
         } catch (err) {
-          console.error('[Classroom] Failed to activate class:', {
+          // Log warning but don't block classroom - features may work with limited functionality
+          console.warn('[Classroom] Class activation warning:', {
             error: err.message,
             classId: classData.class_id,
             timestamp: new Date().toISOString()
           })
-          // Show user-friendly error but don't block classroom
-          alert(`Warning: Could not fully activate class session. Some features may not work. Error: ${err.message}`)
+          // Don't show alert - continue with classroom functionality
         }
       }
 
@@ -2116,6 +2120,14 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         </div>
       )}
 
+      {/* Connection/Error toast */}
+      {error && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2.5 bg-red-900 border border-red-600 rounded-lg shadow-lg flex items-center gap-2 max-w-md">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <p className="text-white text-sm">{error}</p>
+        </div>
+      )}
+
       {/* ── Main Content ── */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Video area – fills full height; header & controls are gradient overlays */}
@@ -2407,6 +2419,20 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   )
 }
 
+// Toast notification component
+function Toast({ message, isError, onClose }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 4000)
+    return () => clearTimeout(timer)
+  }, [onClose])
+
+  return (
+    <div className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg text-white text-sm z-50 animate-slide-in ${isError ? 'bg-red-600' : 'bg-green-600'}`}>
+      {message}
+    </div>
+  )
+}
+
 // ─── Main Classroom Component ───────────────────────────────────────────────
 function Classroom({ user }) {
   const { id } = useParams()
@@ -2418,6 +2444,35 @@ function Classroom({ user }) {
   const [isFinished, setIsFinished] = useState(false)
   const [hasJoined, setHasJoined] = useState(false)
   const [joinSettings, setJoinSettings] = useState(null)
+  const [toast, setToast] = useState(null)
+  const keepAliveRef = useRef(null)
+
+  // Show error toast without exiting
+  const showError = useCallback((message) => {
+    console.warn('[Classroom] Error:', message)
+    setToast({ message, isError: true })
+  }, [])
+
+  // ── Keep-alive ping to prevent backend sleep ──
+  useEffect(() => {
+    if (!hasJoined) return
+
+    const pingServer = async () => {
+      try {
+        await healthAPI.ping()
+      } catch (err) {
+        console.debug('[Classroom] Keep-alive ping failed (will retry)', err.message)
+      }
+    }
+
+    // Start ping immediately, then every 20 seconds
+    pingServer()
+    keepAliveRef.current = setInterval(pingServer, 20000)
+
+    return () => {
+      if (keepAliveRef.current) clearInterval(keepAliveRef.current)
+    }
+  }, [hasJoined])
 
   useEffect(() => {
     let active = true
@@ -2427,15 +2482,27 @@ function Classroom({ user }) {
       try {
         const data = await classAPI.get(id)
         if (!active) return
-        
+
         setClassData(data)
         setIsLive(data.is_active)
         // Check if class has ended (was active but now finished)
         setIsFinished(data.is_finished === true || data.status === 'finished' || data.status === 'ended')
       } catch (err) {
         if (active) {
-          alert('Class not found: ' + err.message)
-          navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')
+          console.error('[Classroom] Failed to load class:', err.message)
+          // On initial load failure, navigate only after waiting a bit
+          // (might be temporary network issue)
+          if (pollCount === 0) {
+            setTimeout(() => {
+              if (active) {
+                showError(`Could not load classroom. Retrying... ${err.message}`)
+              }
+            }, 500)
+          }
+          // Navigate only on repeated failures
+          if (pollCount > 2) {
+            navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')
+          }
         }
       } finally {
         if (active) setLoading(false)
@@ -2444,7 +2511,7 @@ function Classroom({ user }) {
 
     const startPolling = async () => {
       await fetchClass() // Fetch immediately
-      
+
       // Poll for status changes every 3 seconds while in classroom
       while (active && hasJoined) {
         await new Promise(r => setTimeout(r, 3000))
@@ -2460,14 +2527,18 @@ function Classroom({ user }) {
                 setIsFinished(true)
               }
             }
-          } catch { /* continue polling */ }
+          } catch (err) {
+            // Log but continue polling - don't exit
+            console.warn('[Classroom] Status poll failed (will keep trying):', err.message)
+            pollCount++
+          }
         }
       }
     }
 
     startPolling()
     return () => { active = false }
-  }, [id, navigate, user.role, hasJoined, isFinished])
+  }, [id, navigate, user.role, hasJoined, isFinished, showError])
 
   const handleLeave = useCallback(() => {
     navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')
@@ -2484,42 +2555,43 @@ function Classroom({ user }) {
     setHasJoined(true)
   }, [])
 
-  if (loading) {
-    return (
-      <div className="h-[100dvh] bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 text-primary-400 animate-spin mx-auto mb-3" />
-          <p className="text-gray-400 text-sm">Loading classroom...</p>
-        </div>
+  return (
+    <>
+      {toast && (
+        <Toast
+          message={toast.message}
+          isError={toast.isError}
+          onClose={() => setToast(null)}
+        />
+      )}
+      <div>
+        {loading ? (
+          <div className="h-[100dvh] bg-gray-900 flex items-center justify-center">
+            <div className="text-center">
+              <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 text-primary-400 animate-spin mx-auto mb-3" />
+              <p className="text-gray-400 text-sm">Loading classroom...</p>
+            </div>
+          </div>
+        ) : !classData ? (
+          null
+        ) : isFinished ? (
+          <ClassFinishedScreen classData={classData} onLeave={handleLeave} />
+        ) : user.role === 'teacher' ? (
+          !hasJoined ? (
+            <PreJoinScreen classData={classData} user={user} onJoin={handleJoin} onLeave={handleLeave} />
+          ) : (
+            <LiveClassroom classData={classData} user={user} onLeave={handleLeave} initialSettings={joinSettings} initialSessionId={location.state?.sessionId} />
+          )
+        ) : !isLive ? (
+          <WaitingRoom classData={classData} onClassStarted={handleClassStarted} onLeave={handleLeave} />
+        ) : !hasJoined ? (
+          <PreJoinScreen classData={classData} user={user} onJoin={handleJoin} onLeave={handleLeave} />
+        ) : (
+          <LiveClassroom classData={classData} user={user} onLeave={handleLeave} initialSettings={joinSettings} initialSessionId={location.state?.sessionId} />
+        )}
       </div>
-    )
-  }
-
-  if (!classData) return null
-
-  // Show finished screen if class has ended
-  if (isFinished) {
-    return <ClassFinishedScreen classData={classData} onLeave={handleLeave} />
-  }
-
-  // Teacher flow: PreJoin -> LiveClassroom
-  if (user.role === 'teacher') {
-    if (!hasJoined) {
-      return <PreJoinScreen classData={classData} user={user} onJoin={handleJoin} onLeave={handleLeave} />
-    }
-    return <LiveClassroom classData={classData} user={user} onLeave={handleLeave} initialSettings={joinSettings} initialSessionId={location.state?.sessionId} />
-  }
-
-  // Student flow: WaitingRoom (if not live) -> PreJoin -> LiveClassroom
-  if (!isLive) {
-    return <WaitingRoom classData={classData} onClassStarted={handleClassStarted} onLeave={handleLeave} />
-  }
-
-  if (!hasJoined) {
-    return <PreJoinScreen classData={classData} user={user} onJoin={handleJoin} onLeave={handleLeave} />
-  }
-
-  return <LiveClassroom classData={classData} user={user} onLeave={handleLeave} initialSettings={joinSettings} initialSessionId={location.state?.sessionId} />
+    </>
+  )
 }
 
 export default Classroom

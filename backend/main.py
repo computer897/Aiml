@@ -105,7 +105,7 @@ async def root():
 async def health_check():
     """
     Health check endpoint.
-    
+
     Returns:
         Server health status
     """
@@ -124,6 +124,18 @@ async def health_check():
         "database": db_status,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@app.get("/ping", tags=["Health"])
+async def ping():
+    """
+    Keep-alive ping endpoint to prevent server sleep.
+    Called every 20 seconds by connected classrooms.
+
+    Returns:
+        Simple pong response
+    """
+    return {"status": "pong", "timestamp": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}
 
 
 if __name__ == "__main__":

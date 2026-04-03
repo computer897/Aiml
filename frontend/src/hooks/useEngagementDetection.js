@@ -32,6 +32,7 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
   const modelsLoadedRef = useRef(false)
   const intervalRef     = useRef(null)
   const lastVideoWarningRef = useRef(0)
+  const lastStatusRef = useRef('not-detected') // Track last emitted status
 
   // ── Load face-api models once on mount ──────────────────────────────────
   useEffect(() => {
@@ -91,10 +92,14 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
     setEngagementStatus(status)
     const isPresent = status !== 'not-detected'
 
-    // Emit to signaling server → forwarded to teacher as 'engagement-update'
-    // cameraOn is always true for students since the physical camera stays on
-    // even when visibility is toggled off
-    webrtcRef.current.sendEngagementUpdate(userId, status, userName, true, isPresent, Date.now())
+    // Only emit socket update if status changed (reduce API load)
+    if (status !== lastStatusRef.current) {
+      lastStatusRef.current = status
+      // Emit to signaling server → forwarded to teacher as 'engagement-update'
+      // cameraOn is always true for students since the physical camera stays on
+      // even when visibility is toggled off
+      webrtcRef.current.sendEngagementUpdate(userId, status, userName, true, isPresent, Date.now())
+    }
   }, [userId, userName, videoRef, webrtcRef])
 
   // ── Start / stop 5-second interval tied to isActive ─────────────────────

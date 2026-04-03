@@ -362,6 +362,20 @@ export const createWebSocket = (classId) => {
   return ws
 }
 
+// Health/Utility APIs
+export const healthAPI = {
+  ping: async () => {
+    // Silent ping to keep server alive - doesn't throw on error
+    try {
+      return await apiRequest('/ping')
+    } catch (error) {
+      // Silently ignore ping errors - don't interrupt classroom
+      console.debug('[API] Keep-alive ping failed (silent):', error.message)
+      return null
+    }
+  },
+}
+
 // Webcam utilities for capturing frames
 export const webcamUtils = {
   captureFrame: (videoElement, canvasElement) => {
