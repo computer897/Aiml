@@ -18,10 +18,38 @@ import { io } from 'socket.io-client'
 
 // Signaling server URL - must point to the Node.js Socket.IO server (NOT the FastAPI backend)
 // In production, VITE_SOCKET_URL must be set to the signaling server URL
+const normalizeSocketUrl = (rawUrl) => {
+  if (!rawUrl || typeof rawUrl !== 'string') return null
+
+  const trimmed = rawUrl.trim().replace(/\/+$/, '')
+  if (!trimmed) return null
+
+  // Socket.IO should use http/https base URLs (not ws/wss endpoint URLs)
+  if (trimmed.startsWith('ws://')) return trimmed.replace(/^ws:\/\//, 'http://')
+  if (trimmed.startsWith('wss://')) return trimmed.replace(/^wss:\/\//, 'https://')
+  return trimmed
+}
+
+const ensureHttpsIfNeeded = (url) => {
+  if (!url) return url
+
+  // Avoid mixed-content failures: HTTPS pages must connect to HTTPS signaling.
+  const isSecurePage = typeof window !== 'undefined' && window.location.protocol === 'https:'
+  const isLocal = /^(http:\/\/localhost|http:\/\/127\.0\.0\.1|https:\/\/localhost|https:\/\/127\.0\.0\.1)/i.test(url)
+  if (isSecurePage && !isLocal && url.startsWith('http://')) {
+    const upgraded = url.replace(/^http:\/\//, 'https://')
+    console.warn('[WebRTC] Upgraded signaling URL to HTTPS to prevent mixed-content errors:', upgraded)
+    return upgraded
+  }
+
+  return url
+}
+
 const getSocketUrl = () => {
   // If explicitly set via env var, use it
-  if (import.meta.env.VITE_SOCKET_URL) {
-    return import.meta.env.VITE_SOCKET_URL
+  if (import.meta.env.VITE_SOCKET_URL?.trim()) {
+    const configuredUrl = ensureHttpsIfNeeded(normalizeSocketUrl(import.meta.env.VITE_SOCKET_URL))
+    if (configuredUrl) return configuredUrl
   }
   
   // In development, use localhost
@@ -32,7 +60,7 @@ const getSocketUrl = () => {
   // Production fallback - try common signaling server names
   // This should be overridden with VITE_SOCKET_URL in production
   console.warn('[WebRTC] VITE_SOCKET_URL not set! Using fallback URL. Set this env var for production.')
-  return 'https://aiml-signaling.onrender.com'
+  return ensureHttpsIfNeeded('https://aiml-signaling.onrender.com')
 }
 
 const SOCKET_URL = getSocketUrl()
@@ -120,10 +148,10 @@ export function createWebRTCManager() {
     })
 
     socket.on('connect_error', (error) => {
-      console.error('[WebRTC] Connection error:', error.message)
+      console.error('[WebRTC] Connection error:', error)
       console.error('[WebRTC] Make sure signaling server is running at:', SOCKET_URL)
       console.warn('[WebRTC] Socket connection unstable - retrying automatically via Socket.IO backoff. Class will NOT auto-close.')
-      callbacks.onConnectionStateChange?.('error')
+      callbacks.onConnectionStateChange?.('connecting')
     })
 
     socket.on('reconnect', (attemptNumber) => {
@@ -133,6 +161,12 @@ export function createWebRTCManager() {
 
     socket.on('reconnect_attempt', (attemptNumber) => {
       console.log('[WebRTC] Reconnection attempt:', attemptNumber)
+      callbacks.onConnectionStateChange?.('connecting')
+    })
+
+    socket.io.on('reconnect_failed', () => {
+      console.error('[WebRTC] Reconnect failed after max attempts')
+      callbacks.onConnectionStateChange?.('error')
     })
 
     setupSignalingHandlers()

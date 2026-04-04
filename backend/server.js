@@ -5,20 +5,24 @@ const { Server } = require("socket.io");
 const app = express();
 const server = http.createServer(app);
 
-// In production, use specific origins. In development, allow all for easier testing.
-const allowedOrigins = process.env.NODE_ENV === 'production' 
-  ? [
-      "https://vcroom.netlify.app",
-      "https://aiml-frontend.onrender.com",
-      process.env.FRONTEND_URL
-    ].filter(Boolean)
-  : true; // Allow all origins in development
+// Allow all origins to avoid cross-origin signaling failures in classroom joins.
+const allowedOrigins = "*";
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
 
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
     methods: ["GET", "POST"],
-    credentials: true
+    credentials: false
   },
   transports: ["websocket", "polling"],
   pingTimeout: 60000,
