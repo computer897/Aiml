@@ -2490,18 +2490,13 @@ function Classroom({ user }) {
       } catch (err) {
         if (active) {
           console.error('[Classroom] Failed to load class:', err.message)
-          // On initial load failure, navigate only after waiting a bit
-          // (might be temporary network issue)
+          // On initial load failure, show error but don't exit
           if (pollCount === 0) {
             setTimeout(() => {
               if (active) {
-                showError(`Could not load classroom. Retrying... ${err.message}`)
+                showError(`Connection issue. Auto-retrying...`)
               }
             }, 500)
-          }
-          // Navigate only on repeated failures
-          if (pollCount > 2) {
-            navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')
           }
         }
       } finally {
@@ -2512,33 +2507,35 @@ function Classroom({ user }) {
     const startPolling = async () => {
       await fetchClass() // Fetch immediately
 
-      // Poll for status changes every 3 seconds while in classroom
-      while (active && hasJoined) {
-        await new Promise(r => setTimeout(r, 3000))
-        if (active && hasJoined) {
-          try {
-            const data = await classAPI.get(id)
-            if (active) {
-              setClassData(data)
-              setIsLive(data.is_active)
-              // Detect when class becomes finished
-              const becameFinished = data.is_finished === true || data.status === 'finished' || data.status === 'ended'
-              if (becameFinished && !isFinished) {
-                setIsFinished(true)
-              }
+      // Poll for status changes every 10 seconds while in classroom
+      while (active) {
+        await new Promise(r => setTimeout(r, 10000))
+        // Only fetch if still active and joined
+        if (!active || !hasJoined) break
+
+        try {
+          const data = await classAPI.get(id)
+          if (active) {
+            setClassData(data)
+            setIsLive(data.is_active)
+            // Detect when class becomes finished
+            const becameFinished = data.is_finished === true || data.status === 'finished' || data.status === 'ended'
+            if (becameFinished) {
+              setIsFinished(true)
             }
-          } catch (err) {
-            // Log but continue polling - don't exit
-            console.warn('[Classroom] Status poll failed (will keep trying):', err.message)
-            pollCount++
+            pollCount = 0 // Reset count on successful fetch
           }
+        } catch (err) {
+          // Log but continue polling - don't exit
+          console.warn('[Classroom] Status poll failed (will keep trying):', err.message)
+          pollCount++
         }
       }
     }
 
     startPolling()
     return () => { active = false }
-  }, [id, navigate, user.role, hasJoined, isFinished, showError])
+  }, [id, hasJoined, showError])
 
   const handleLeave = useCallback(() => {
     navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')
