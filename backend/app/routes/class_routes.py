@@ -421,28 +421,28 @@ async def activate_class(
         }}
     )
 
-    # SCHEDULE AUTOMATIC END when duration expires
-    from app.class_scheduler import get_class_scheduler
-    scheduler = get_class_scheduler()
-    await scheduler.schedule_auto_end(
-        class_id=class_id,
-        session_id=session_id,
-        duration_minutes=duration_minutes,
-        db=db
-    )
+    # AUTOMATIC END DISABLED - Classes now stay open indefinitely
+    # Uncomment below to re-enable auto-end scheduling
+    # from app.class_scheduler import get_class_scheduler
+    # scheduler = get_class_scheduler()
+    # await scheduler.schedule_auto_end(
+    #     class_id=class_id,
+    #     session_id=session_id,
+    #     duration_minutes=duration_minutes,
+    #     db=db
+    # )
 
     logger.info(
         f"✓ Class {class_id} activated with session {session_id} "
-        f"(will auto-end after {duration_minutes} min)"
+        f"(no auto-end - class stays open until manually closed)"
     )
 
     return {
-        "message": "Class activated - will auto-end after duration expires",
+        "message": "Class activated - will stay open until manually closed by teacher",
         "class_id": class_id,
         "session_id": session_id,
         "started_at": session_started_at.isoformat(),
         "duration_minutes": duration_minutes,
-        "auto_end_time": (session_started_at + timedelta(minutes=duration_minutes)).isoformat(),
     }
 
 
