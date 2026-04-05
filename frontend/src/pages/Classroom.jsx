@@ -722,11 +722,13 @@ function VideoGrid({ localStream, localVideoOn, localMicOn, remoteStreams, remot
   const students = participants.filter(p => p.role !== 'teacher')
   const cameraOnParticipants = participants.filter(p => p.videoOn)
   const cameraOnCount = cameraOnParticipants.length
+  const studentCameraOnCount = students.filter(p => p.videoOn).length
 
   // ─── Determine layout mode (Google Meet style - speaker focus) ───
   // Speaker gets 70% of screen, others get 30% in grid
   const getLayoutMode = () => {
     if (isScreenSharing) return 'screen-share'
+    if (teacher && studentCameraOnCount === 0) return 'teacher-full'
     if (cameraOnCount >= 1) return 'speaker-focus'  // All modes use speaker focus except screen share
     return 'empty'
   }
@@ -745,12 +747,6 @@ function VideoGrid({ localStream, localVideoOn, localMicOn, remoteStreams, remot
   // ─── Students with camera ON (for bottom thumbnails) ───
   const studentsWithCamera = students.filter(s => s.videoOn)
   const presentingStream = teacher?.isLocal && screenShareStream ? screenShareStream : teacher?.stream
-  const showTeacherCameraThumbnail = Boolean(
-    layoutMode === 'screen-share' &&
-    teacher?.isLocal &&
-    screenShareStream &&
-    localVideoOn
-  )
 
   return (
     <div className="w-full h-full flex flex-col relative overflow-hidden">
@@ -785,15 +781,49 @@ function VideoGrid({ localStream, localVideoOn, localMicOn, remoteStreams, remot
 
           {/* Participant thumbnails - bottom row */}
           {cameraOnParticipants.length > 0 && (
-            <div className="absolute bottom-2 left-0 right-0 p-2 flex gap-2 overflow-x-auto justify-center" style={{ scrollbarWidth: 'none' }}>
+            <div className="absolute bottom-24 sm:bottom-28 left-0 right-0 px-2 sm:px-4 py-2 flex gap-2 overflow-x-auto justify-center" style={{ scrollbarWidth: 'none' }}>
               {cameraOnParticipants.map(p => (
-                <div key={p.key} className="flex-shrink-0 w-32 h-20 sm:w-40 sm:h-24 rounded-lg overflow-hidden border border-white/10">
+                <div key={p.key} className="flex-shrink-0 w-32 h-20 sm:w-40 sm:h-24 rounded-lg overflow-hidden border border-white/10 shadow-lg bg-black/30 backdrop-blur-sm">
                   <VideoTile stream={p.stream} name={p.name} role={p.role} isLocal={p.isLocal} videoOn={p.videoOn} micOn={p.micOn} size="small" />
                 </div>
               ))}
             </div>
           )}
         </>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* LAYOUT: TEACHER FULL STAGE                                       */}
+      {/* Teacher fills the stage when students have cameras off           */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {layoutMode === 'teacher-full' && (
+        <div className="w-full h-full p-1.5 sm:p-2">
+          {teacher && (
+            <div className="relative w-full h-full rounded-xl overflow-hidden bg-black shadow-2xl">
+              <VideoTile
+                stream={teacher.stream}
+                name={teacher.name}
+                role="teacher"
+                isLocal={teacher.isLocal}
+                videoOn={teacher.videoOn}
+                micOn={teacher.micOn}
+                size="normal"
+              />
+              {teacher?.isLocal && <canvas ref={canvasRef} className="hidden" />}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-black/10 pointer-events-none" />
+            </div>
+          )}
+          {!teacher && (
+            <div className="w-full h-full rounded-xl bg-gray-950 flex items-center justify-center">
+              <div className="text-center">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-purple-500 to-purple-700 rounded-full flex items-center justify-center mx-auto mb-3 shadow-xl">
+                  <span className="text-white text-3xl font-bold">T</span>
+                </div>
+                <p className="text-gray-400 text-sm">Waiting for teacher...</p>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════════════════════ */}
@@ -2141,10 +2171,10 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           </div>
 
           {/* ── Bottom Controls (Google Meet style – gradient overlay) ── */}
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-3 sm:px-6 py-5 sm:py-7 safe-bottom">
-            <div className="flex items-center justify-between max-w-4xl mx-auto">
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-2 sm:px-6 py-3 sm:py-7 safe-bottom overflow-hidden">
+            <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-2 sm:justify-between">
               {/* Left side buttons */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 order-2 sm:order-1 shrink-0">
                 {user?.role === 'teacher' && (
                   <button
                     onClick={() => togglePanel('engagement')}
@@ -2157,11 +2187,11 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
               </div>
 
               {/* Center controls */}
-              <div className="flex items-center gap-2 sm:gap-3">
+              <div className="order-1 sm:order-2 flex flex-wrap items-center justify-center gap-2 sm:gap-3 w-full sm:w-auto">
                 {/* Mic */}
                 <button
                   onClick={() => setMicOn(v => !v)}
-                  className={`p-3 sm:p-4 rounded-full transition ${micOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
+                  className={`p-3 sm:p-4 rounded-full transition shrink-0 ${micOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
                   title={micOn ? 'Turn off microphone' : 'Turn on microphone'}
                 >
                   {micOn ? <Mic className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <MicOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
@@ -2172,7 +2202,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                     but video is hidden from other participants. */}
                 <button
                   onClick={() => setVideoOn(v => !v)}
-                  className={`p-3 sm:p-4 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
+                  className={`p-3 sm:p-4 rounded-full transition shrink-0 ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
                   title={videoOn ? 'Turn off camera' : 'Turn on camera'}
                 >
                   {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
@@ -2182,7 +2212,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                 {user?.role === 'teacher' && (
                   <button
                     onClick={handleScreenShare}
-                    className={`p-3 sm:p-4 rounded-full transition relative ${
+                    className={`p-3 sm:p-4 rounded-full transition relative shrink-0 ${
                       isScreenSharing
                         ? 'bg-primary-600 hover:bg-primary-700'
                         : screenShareSupported
@@ -2207,7 +2237,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                 {/* Chat */}
                 <button
                   onClick={() => togglePanel('chat')}
-                  className={`p-3 sm:p-4 rounded-full transition relative ${showChat ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-700 hover:bg-gray-600'}`}
+                  className={`p-3 sm:p-4 rounded-full transition relative shrink-0 ${showChat ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-700 hover:bg-gray-600'}`}
                   title="Chat"
                 >
                   <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
@@ -2222,7 +2252,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                 {user?.role === 'student' && (
                   <button
                     onClick={handleRaiseDoubt}
-                    className="px-3 sm:px-4 py-2.5 sm:py-3 rounded-full bg-orange-600 hover:bg-orange-700 transition flex items-center gap-1.5"
+                    className="px-3 sm:px-4 py-2.5 sm:py-3 rounded-full bg-orange-600 hover:bg-orange-700 transition flex items-center gap-1.5 shrink-0"
                     title="Raise a doubt"
                   >
                     <Hand className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
@@ -2232,7 +2262,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                 {user?.role === 'teacher' && (
                   <button
                     onClick={() => togglePanel('doubts')}
-                    className={`p-3 sm:p-4 rounded-full transition relative ${showDoubts ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-700 hover:bg-gray-600'}`}
+                    className={`p-3 sm:p-4 rounded-full transition relative shrink-0 ${showDoubts ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-700 hover:bg-gray-600'}`}
                     title="Student doubts"
                   >
                     <HelpCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
@@ -2246,10 +2276,10 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
               </div>
 
               {/* Right side */}
-              <div className="flex items-center gap-2">
+              <div className="order-3 flex items-center gap-2 shrink-0">
                 <button
                   onClick={handleLeaveClass}
-                  className="p-2.5 sm:p-3 rounded-full bg-red-600 hover:bg-red-700 transition"
+                  className="p-2.5 sm:p-3 rounded-full bg-red-600 hover:bg-red-700 transition shrink-0"
                   title="Leave call"
                 >
                   <Phone className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
