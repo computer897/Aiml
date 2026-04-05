@@ -1991,7 +1991,11 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           sessionId={attendanceReport?.session_id || sessionId}
           onClose={() => {
             setShowAttendanceReport(false)
-            onLeave()
+            onLeave({
+              openAttendanceReport: true,
+              attendanceClassId: classData?.class_id,
+              attendanceSessionId: attendanceReport?.session_id || sessionId || classData?.active_session_id || null,
+            })
           }}
           autoDownload={true}
         />
@@ -2428,8 +2432,11 @@ function Classroom({ user }) {
     return () => { active = false }
   }, [id, hasJoined, showError])
 
-  const handleLeave = useCallback(() => {
-    navigate(user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard')
+  const handleLeave = useCallback((navigationState = null) => {
+    navigate(
+      user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard',
+      navigationState ? { state: navigationState } : undefined
+    )
   }, [navigate, user.role])
 
   const handleClassStarted = useCallback((updatedData) => {

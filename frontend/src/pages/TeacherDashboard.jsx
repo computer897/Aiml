@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus, Video, BarChart3, Users, Clock, Upload, FileText,
   Bell, ChevronRight, BookOpen, Play, AlertCircle, RefreshCw,
@@ -24,6 +24,8 @@ const ANNOUNCEMENTS_STORAGE_KEY = 'teacher_announcements'
 
 function TeacherDashboard({ user, onLogout, onUserUpdate }) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const handledAttendanceRouteState = useRef(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [classes, setClasses] = useState([])
   const [activeClass, setActiveClass] = useState(null)
@@ -232,6 +234,30 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
       socket.disconnect()
     }
   }, [activeClass?.class_id, classes]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const routeState = location.state
+    if (handledAttendanceRouteState.current || !routeState?.openAttendanceReport) return
+    if (classes.length === 0) return
+
+    const classId = routeState.attendanceClassId || routeState.classId
+    if (!classId) return
+
+    const selectedClass = classes.find(cls => cls.class_id === classId)
+    if (!selectedClass) return
+
+    handledAttendanceRouteState.current = true
+
+    const openReport = async () => {
+      setActiveClass(selectedClass)
+      await hydrateAttendanceData(selectedClass, {
+        preferredSessionId: routeState.attendanceSessionId || routeState.sessionId || null,
+        refreshHistory: true,
+      })
+    }
+
+    openReport()
+  }, [classes, location.state])
 
   useEffect(() => {
     const classId = activeClass?.class_id
