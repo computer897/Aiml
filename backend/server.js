@@ -221,6 +221,34 @@ async function finalizeClassSession(classId, authToken) {
   return data;
 }
 
+async function finalizeRoomClass(roomId, classId, authToken, sessionId = null) {
+  let finalized = null;
+  let finalizeError = null;
+
+  try {
+    finalized = await finalizeClassSession(classId, authToken);
+  } catch (err) {
+    finalizeError = err instanceof Error ? err.message : 'Failed to finalize attendance';
+    console.error(`[finalizeRoomClass] Finalize failed for class ${classId}:`, finalizeError);
+  }
+
+  const readyPayload = {
+    classId,
+    sessionId: finalized?.attendance_report?.session_id || sessionId,
+    endTime: finalized?.ended_at || new Date().toISOString(),
+    success: !finalizeError,
+  };
+
+  if (roomId && rooms[roomId]) {
+    rooms[roomId].host = null;
+    rooms[roomId].participants = [];
+    rooms[roomId].waitingStudents = [];
+    rooms[roomId].classStartedAt = null;
+  }
+
+  return { finalized, finalizeError, readyPayload };
+}
+
 io.on("connection", socket => {
   console.log("User connected:", socket.id);
 
@@ -361,7 +389,7 @@ io.on("connection", socket => {
 
   // ── Join Room (Teacher joins directly, Student joins only after approval) ──
   socket.on("join-room", data => {
-    const { roomId, role, userId, userName } = data;
+    const { roomId, role, userId, userName, token } = data;
     console.log(`[join-room] ${role} "${userName}" (${socket.id}) -> room ${roomId}`);
 
     socket.join(roomId);
@@ -369,6 +397,7 @@ io.on("connection", socket => {
     socket.role = role;
     socket.userId = userId;
     socket.userName = userName;
+    socket.authToken = token || socket.authToken || null;
 
     if (!rooms[roomId]) {
       rooms[roomId] = { host: null, participants: [], waitingStudents: [], classStartedAt: null };
@@ -615,16 +644,8 @@ io.on("connection", socket => {
 
     const classId = data.classId || roomId;
     const sessionId = data.sessionId || null;
-    const authToken = data.token || null;
-    let finalized = null;
-    let finalizeError = null;
-
-    try {
-      finalized = await finalizeClassSession(classId, authToken);
-    } catch (err) {
-      finalizeError = err instanceof Error ? err.message : 'Failed to finalize attendance';
-      console.error(`[end-class] Finalize failed for class ${classId}:`, finalizeError);
-    }
+    const authToken = data.token || socket.authToken || null;
+    const { finalized, finalizeError, readyPayload } = await finalizeRoomClass(roomId, classId, authToken, sessionId);
 
     // Notify teacher that class ended (and whether report is ready from backend).
     socket.emit("class-ended", {
@@ -636,12 +657,6 @@ io.on("connection", socket => {
     });
 
     // Notify dashboards and classroom clients to fetch latest attendance list.
-    const readyPayload = {
-      classId,
-      sessionId: finalized?.attendance_report?.session_id || sessionId,
-      endTime: finalized?.ended_at || new Date().toISOString(),
-      success: !finalizeError,
-    };
     io.emit('attendance-ready', readyPayload);
     io.to(roomId).emit('attendance-ready', readyPayload);
 
@@ -653,12 +668,6 @@ io.on("connection", socket => {
       role:     'teacher',
       reason:   'class-ended'
     });
-
-    // Clean up room
-    rooms[roomId].host = null;
-    rooms[roomId].participants = [];
-    rooms[roomId].waitingStudents = [];
-    rooms[roomId].classStartedAt = null;
 
     console.log(`[end-class] Teacher "${socket.userName}" ended class in room ${roomId} (classId=${classId}).`);
   });
@@ -775,61 +784,70 @@ io.on("connection", socket => {
   });
 
   // ── Disconnect ──
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
     const roomId = socket.roomId;
 
     if (roomId && rooms[roomId]) {
-      const isHost = rooms[roomId].host === socket.id;
+      const room = rooms[roomId];
+      const isHost = room.host === socket.id;
 
       if (isHost) {
-        rooms[roomId].host = null;
-        console.log(`Teacher "${socket.userName}" (${socket.id}) left room ${roomId}`);
+        const classId = roomId;
+        const sessionId = room.active_session_id || null;
+        const authToken = socket.authToken || null;
+        const waitingStudentIds = [...(room.waitingStudents || [])];
 
-        // Notify all waiting students that teacher left
-        (rooms[roomId].waitingStudents || []).forEach(sid => {
-          io.to(sid).emit("waiting-for-teacher");
-        });
-      } else {
-        // Remove from participants or waiting list
-        rooms[roomId].participants = rooms[roomId].participants.filter(id => id !== socket.id);
-        rooms[roomId].waitingStudents = (rooms[roomId].waitingStudents || []).filter(id => id !== socket.id);
-
-        // ── Record leave time for attendance tracking ──
-        if (attendanceData[roomId]?.[socket.id]) {
-          const leaveTime = new Date();
-          const joinTime  = new Date(attendanceData[roomId][socket.id].joinTime);
-          attendanceData[roomId][socket.id].leaveTime     = leaveTime.toISOString();
-          attendanceData[roomId][socket.id].totalDuration = Math.max(0, Math.round((leaveTime - joinTime) / 60000));
-          // Notify teacher
-          if (rooms[roomId].host) {
-            io.to(rooms[roomId].host).emit('attendance-update', attendanceData[roomId]);
-          }
-        }
-        console.log(`Student "${socket.userName}" (${socket.id}) left room ${roomId}`);
-      }
-
-      // Broadcast user-left to all remaining participants
-      // Use the appropriate event name that frontend expects
-      if (isHost) {
+        // Notify participants immediately that the teacher has left.
         socket.to(roomId).emit("teacher-left", {
           socketId: socket.id,
           userId: socket.userId,
           userName: socket.userName,
-          role: "teacher"
+          role: "teacher",
+          reason: "class-ended"
         });
-      } else {
-        socket.to(roomId).emit("student-left", {
-          socketId: socket.id,
-          userId: socket.userId,
-          userName: socket.userName,
-          role: "student"
+
+        const { readyPayload } = await finalizeRoomClass(roomId, classId, authToken, sessionId);
+
+        waitingStudentIds.forEach(sid => {
+          io.to(sid).emit("waiting-for-teacher");
         });
+
+        io.emit('attendance-ready', readyPayload);
+        io.to(roomId).emit('attendance-ready', readyPayload);
+
+        console.log(`Teacher "${socket.userName}" (${socket.id}) left room ${roomId}`);
+        console.log("User disconnected:", socket.id);
+        return;
       }
+
+      // Remove from participants or waiting list
+      room.participants = room.participants.filter(id => id !== socket.id);
+      room.waitingStudents = (room.waitingStudents || []).filter(id => id !== socket.id);
+
+      // ── Record leave time for attendance tracking ──
+      if (attendanceData[roomId]?.[socket.id]) {
+        const leaveTime = new Date();
+        const joinTime  = new Date(attendanceData[roomId][socket.id].joinTime);
+        attendanceData[roomId][socket.id].leaveTime     = leaveTime.toISOString();
+        attendanceData[roomId][socket.id].totalDuration = Math.max(0, Math.round((leaveTime - joinTime) / 60000));
+        // Notify teacher
+        if (room.host) {
+          io.to(room.host).emit('attendance-update', attendanceData[roomId]);
+        }
+      }
+      console.log(`Student "${socket.userName}" (${socket.id}) left room ${roomId}`);
+
+      socket.to(roomId).emit("student-left", {
+        socketId: socket.id,
+        userId: socket.userId,
+        userName: socket.userName,
+        role: "student"
+      });
 
       broadcastParticipants(roomId);
 
       // Cleanup empty room
-      if (!rooms[roomId].host && rooms[roomId].participants.length === 0 && (rooms[roomId].waitingStudents || []).length === 0) {
+      if (!room.host && room.participants.length === 0 && (room.waitingStudents || []).length === 0) {
         delete rooms[roomId];
         console.log(`Room ${roomId} deleted (empty)`);
       }

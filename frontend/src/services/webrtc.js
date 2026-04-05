@@ -80,6 +80,7 @@ export function createWebRTCManager() {
   let localStream = null
   let screenStream = null
   let hiddenVideoTrack = null
+  let authToken = null
   let videoVisibleToPeers = true
   let peers = {} // { socketId: RTCPeerConnection }
   let remoteStreams = {} // { socketId: MediaStream }
@@ -591,12 +592,13 @@ export function createWebRTCManager() {
    * - Teacher: joins directly and becomes host
    * - Student: requests to join (enters waiting room), WebRTC starts only after approval
    */
-  function joinRoom(rid, r, uid, uname, stream) {
+  function joinRoom(rid, r, uid, uname, stream, token = null) {
     roomId = rid
     role = r
     userId = uid
     userName = uname
     localStream = stream
+    authToken = token
 
     console.log('[WebRTC] joinRoom:', { roomId, role, userId, userName, hasStream: !!stream })
 
@@ -630,7 +632,8 @@ export function createWebRTCManager() {
         roomId,
         role,
         userId,
-        userName
+        userName,
+        token: authToken
       })
       console.log(`[WebRTC] Teacher joined room ${roomId}`)
     } else {
@@ -701,7 +704,7 @@ export function createWebRTCManager() {
     socket.emit('end-class', {
       classId: payload.classId || roomId,
       sessionId: payload.sessionId || null,
-      token: payload.token || null,
+      token: payload.token || authToken || null,
     })
     console.log('[WebRTC] End-class emitted')
   }
@@ -942,6 +945,7 @@ export function createWebRTCManager() {
     localStream = null
     roomId = null
     role = null
+    authToken = null
   }
 
   function isConnected() {

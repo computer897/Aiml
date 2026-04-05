@@ -1573,13 +1573,16 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
             role: user?.role,
             userId: user?.id || user?._id
           })
+
+          const token = user?.token || JSON.parse(localStorage.getItem('user') || '{}')?.token || null
           
           rtc.joinRoom(
             classData.class_id,
             user?.role || 'student',
             user?.id || user?._id,
             user?.name,
-            stream
+            stream,
+            token
           )
           
           console.log('[Classroom] Successfully called joinRoom')
