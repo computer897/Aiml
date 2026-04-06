@@ -148,6 +148,19 @@ The built files will be in the `dist` folder.
 npm run preview
 ```
 
+## ▲ Deploy to Vercel
+
+This frontend is ready for Vercel deployment.
+
+1. Import the repository in Vercel.
+2. Set the project Root Directory to `frontend`.
+3. Add environment variables:
+  - `VITE_API_URL=https://aiml-1-rjdv.onrender.com`
+  - `VITE_SOCKET_URL=https://aiml-signaling.onrender.com`
+4. Deploy.
+
+For full steps, see `VERCEL_DEPLOYMENT.md`.
+
 ## 👤 User Roles & Access
 
 ### Student Access
