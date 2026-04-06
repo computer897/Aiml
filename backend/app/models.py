@@ -129,7 +129,6 @@ class ClassResponse(BaseModel):
     duration_minutes: int
     is_active: bool
     is_finished: Optional[bool] = False
-    status: Optional[str] = None  # "active", "ended", "upcoming", etc.
     active_session_id: Optional[str] = None
     session_started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
