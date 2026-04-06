@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/class", tags=["Classroom"])
 
 
+async def _delete_class_permanently(db, class_doc: dict) -> None:
+    """Delete class and related data from all relevant collections."""
+    class_id = class_doc.get("class_id")
+    if not class_id:
+        return
+
+    await db.classes.delete_one({"_id": class_doc["_id"]})
+    await db.attendance.delete_many({"class_id": class_id})
+    await db.attendance_reports.delete_many({"class_id": class_id})
+    await db.class_notifications.delete_many({"class_id": class_id})
+    await db.join_requests.delete_many({"class_id": class_id})
+
+
 class ClassUpdate(BaseModel):
     """Schema for updating a class."""
     title: Optional[str] = None
@@ -123,6 +136,27 @@ async def get_teacher_classes(
     By default, excludes finished classes (auto-cleanup).
     """
     query = {"teacher_id": current_user.id}
+    now = datetime.utcnow()
+
+    # Safety cleanup: remove classes that are still marked active but already past end-time.
+    expired_active_cursor = db.classes.find({
+        "teacher_id": current_user.id,
+        "is_active": True,
+        "schedule_time": {"$exists": True},
+        "duration_minutes": {"$exists": True},
+    })
+    async for stale_doc in expired_active_cursor:
+        end_time = stale_doc["schedule_time"] + timedelta(minutes=stale_doc["duration_minutes"])
+        if now >= end_time:
+            logger.info("Removing expired active class %s during teacher list refresh", stale_doc.get("class_id"))
+            await _delete_class_permanently(db, stale_doc)
+
+    # Hard cleanup: permanently remove already-finished classes for this teacher.
+    if not include_finished:
+        finished_cursor = db.classes.find({"teacher_id": current_user.id, "is_finished": True})
+        async for finished_doc in finished_cursor:
+            await _delete_class_permanently(db, finished_doc)
+
     if not include_finished:
         # Exclude finished classes from the list
         query["$or"] = [{"is_finished": {"$ne": True}}, {"is_finished": {"$exists": False}}]
@@ -151,6 +185,20 @@ async def get_student_classes(
     """
     # Build query - filter by enrolled status
     query = {"enrolled_students": current_user.id}
+
+    # Safety cleanup: remove stale classes that are still active but already expired.
+    now = datetime.utcnow()
+    stale_cursor = db.classes.find({
+        "enrolled_students": current_user.id,
+        "is_active": True,
+        "schedule_time": {"$exists": True},
+        "duration_minutes": {"$exists": True},
+    })
+    async for stale_doc in stale_cursor:
+        end_time = stale_doc["schedule_time"] + timedelta(minutes=stale_doc["duration_minutes"])
+        if now >= end_time:
+            logger.info("Removing expired active class %s during student list refresh", stale_doc.get("class_id"))
+            await _delete_class_permanently(db, stale_doc)
     if not include_finished:
         # Exclude finished classes from the list
         query["$or"] = [{"is_finished": {"$ne": True}}, {"is_finished": {"$exists": False}}]
@@ -232,32 +280,46 @@ async def get_class(
 ):
     """
     Get class details by class_id.
-    
+
     Google Meet style: Any authenticated user can view class details
     using the class ID. No college/department restrictions.
-    
+
     Args:
         class_id: Class identifier
         current_user: Authenticated user
         db: Database instance
-        
+
     Returns:
         Class information
-        
+
     Raises:
         HTTPException: If class not found
     """
     class_doc = await db.classes.find_one({"class_id": class_id})
-    
+
     if not class_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Class not found"
         )
-    
+
+    # Auto-end class if scheduled end time has passed
+    if class_doc.get("is_active") and class_doc.get("schedule_time") and class_doc.get("duration_minutes"):
+        schedule_time = class_doc["schedule_time"]
+        duration_minutes = class_doc["duration_minutes"]
+        end_time = schedule_time + timedelta(minutes=duration_minutes)
+
+        if datetime.utcnow() >= end_time:
+            logger.info(f"Auto-ending class {class_id} - scheduled end time reached")
+            await _delete_class_permanently(db, class_doc)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Class has finished and was removed permanently"
+            )
+
     # Google Meet style - anyone with the class ID can access
     # No college/department restrictions
-    
+
     class_doc["id"] = str(class_doc["_id"])
     return ClassResponse(**class_doc)
 
@@ -403,6 +465,20 @@ async def activate_class(
             detail="Not authorized to activate this class"
         )
 
+    # Check if class has already passed its scheduled end time
+    if class_doc.get("schedule_time") and class_doc.get("duration_minutes"):
+        schedule_time = class_doc["schedule_time"]
+        duration_minutes = class_doc["duration_minutes"]
+        end_time = schedule_time + timedelta(minutes=duration_minutes)
+
+        if datetime.utcnow() >= end_time:
+            logger.warning(f"Cannot activate class {class_id} - scheduled end time has passed")
+            await _delete_class_permanently(db, class_doc)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot activate class - scheduled end time ({end_time.isoformat()}) has already passed and class was removed"
+            )
+
     # Generate session ID
     session_id = f"{class_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
     session_started_at = datetime.utcnow()
@@ -526,18 +602,8 @@ async def deactivate_class(
             attendance_report = None
 
     # Mark class as finished (MANUALLY)
-    await db.classes.update_one(
-        {"_id": class_doc["_id"]},
-        {"$set": {
-            "is_active": False,
-            "is_finished": True,
-            "active_session_id": None,
-            "session_started_at": None,
-            "ended_at": ended_at,
-            "auto_ended": False,  # Not auto-ended
-            "ended_reason": "Manually ended by teacher",
-        }}
-    )
+    attendance_payload = attendance_report.model_dump() if attendance_report else None
+    await _delete_class_permanently(db, class_doc)
 
     logger.info(
         f"✓ Class {class_id} manually ended by {current_user.name} "
@@ -545,11 +611,11 @@ async def deactivate_class(
     )
 
     return {
-        "message": "Class ended successfully - attendance finalized",
+        "message": "Class ended successfully and removed permanently",
         "class_id": class_id,
         "ended_at": ended_at.isoformat(),
         "manually_ended": True,
-        "attendance_report": attendance_report.model_dump() if attendance_report else None
+        "attendance_report": attendance_payload
     }
 
 
@@ -656,12 +722,7 @@ async def delete_class(
             detail="Not authorized to delete this class"
         )
     
-    # Delete the class
-    await db.classes.delete_one({"_id": class_doc["_id"]})
-    
-    # Also delete related attendance records
-    await db.attendance.delete_many({"class_id": class_id})
-    await db.attendance_reports.delete_many({"class_id": class_id})
+    await _delete_class_permanently(db, class_doc)
     
     logger.info(f"✓ Class {class_id} deleted by teacher {current_user.name}")
     
@@ -747,18 +808,7 @@ async def check_and_end_expired_classes(
                             )
 
                     # Mark as finished
-                    await db.classes.update_one(
-                        {"_id": class_doc["_id"]},
-                        {"$set": {
-                            "is_active": False,
-                            "is_finished": True,
-                            "active_session_id": None,
-                            "session_started_at": None,
-                            "ended_at": ended_at,
-                            "auto_ended": True,
-                            "ended_reason": "Manually triggered auto-end (admin check)",
-                        }}
-                    )
+                    await _delete_class_permanently(db, class_doc)
 
                     expired_classes.append({
                         "class_id": class_id,
