@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { PlusSquare, Calendar, Clock, FileText, Users, Sparkles, AlertCircle } from 'lucide-react'
+import { Copy, CheckCircle, AlertCircle, Zap } from 'lucide-react'
 
-function TeacherCreateClassroomTab({ onCreateClass }) {
+function TeacherCreateClassroomTab({ onCreateClass, onBack }) {
   const [form, setForm] = useState({
     classId: '',
     title: '',
@@ -9,13 +9,11 @@ function TeacherCreateClassroomTab({ onCreateClass }) {
     subject: '',
     scheduleDate: '',
     scheduleTime: '',
-    duration: '60',
+    duration: '45',
     maxStudents: '50',
-    enableRecording: true,
-    enableChat: true,
-    enableAI: true,
   })
   const [creating, setCreating] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const handleChange = (field, value) => setForm(prev => ({ ...prev, [field]: value }))
 
@@ -33,60 +31,88 @@ function TeacherCreateClassroomTab({ onCreateClass }) {
         scheduleTime: `${form.scheduleDate}T${form.scheduleTime}`,
         duration: form.duration,
       })
-      setForm({ classId: '', title: '', description: '', subject: '', scheduleDate: '', scheduleTime: '', duration: '60', maxStudents: '50', enableRecording: true, enableChat: true, enableAI: true })
+      setForm({ classId: '', title: '', description: '', subject: '', scheduleDate: '', scheduleTime: '', duration: '45', maxStudents: '50' })
     } catch (err) {
       alert('Failed: ' + err.message)
     } finally { setCreating(false) }
   }
 
   const generateClassId = () => {
-    const id = 'CLS-' + Math.random().toString(36).substring(2, 8).toUpperCase()
+    const year = new Date().getFullYear().toString().slice(-2)
+    const id = `CLASS_${year}24-${Math.floor(Math.random() * 100)}`
     handleChange('classId', id)
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Create Classroom</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Set up a new virtual classroom session</p>
-      </div>
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(form.classId)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Form */}
-        <div className="lg:col-span-2">
-          <form onSubmit={handleSubmit} className="card-interactive p-6 space-y-5">
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4 sm:p-6">
+      {/* Header */}
+      <div className="max-w-3xl mx-auto mb-8">
+        <div className="flex items-center justify-between mb-6">
+          <button onClick={onBack} className="text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 text-sm">
+            ← Back
+          </button>
+          <button onClick={onBack} className="text-gray-400 hover:text-gray-600 text-xl">
+            ✕
+          </button>
+        </div>
+
+        {/* Main Form Card - Premium Design */}
+        <div className="bg-white rounded-3xl shadow-xl p-8 space-y-6 border border-blue-100">
+          <h1 className="text-3xl font-bold text-gray-900">Create Classroom</h1>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
             {/* Class ID */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                Class ID <span className="text-red-500">*</span>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Class ID
               </label>
               <div className="flex gap-2">
-                <input required value={form.classId} onChange={e => handleChange('classId', e.target.value)}
-                  placeholder="e.g. CLS-ABC123"
-                  className="input-base flex-1" />
-                <button type="button" onClick={generateClassId}
-                  className="px-4 py-2.5 bg-gray-100 dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition whitespace-nowrap flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4" /> Generate
-                </button>
+                <div className="flex-1 flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-xl border border-gray-300 hover:border-blue-300 transition">
+                  <span className="text-sm font-mono font-semibold text-gray-900">{form.classId || 'CLASS_XXXX-XX'}</span>
+                </div>
+                {form.classId ? (
+                  <button type="button" onClick={copyToClipboard}
+                    className={`px-5 py-3 rounded-xl font-semibold transition flex items-center gap-2 whitespace-nowrap ${
+                      copied
+                        ? 'bg-green-500 text-white'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}>
+                    {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                ) : (
+                  <button type="button" onClick={generateClassId}
+                    className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition whitespace-nowrap flex items-center gap-2">
+                    Generate
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Title */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                Class Title <span className="text-red-500">*</span>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Class Title
               </label>
               <input required value={form.title} onChange={e => handleChange('title', e.target.value)}
-                placeholder="e.g. Advanced Mathematics - Integration"
-                className="input-base" />
+                placeholder="e.g., Advanced European History"
+                className="w-full px-4 py-3 border border-gray-300 bg-white rounded-xl text-gray-900 placeholder-gray-500 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" />
             </div>
 
-            {/* Subject + Duration row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Subject & Duration Row */}
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Subject</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Select Subject
+                </label>
                 <select value={form.subject} onChange={e => handleChange('subject', e.target.value)}
-                  className="input-base">
+                  className="w-full px-4 py-3 border border-gray-300 bg-white rounded-xl text-gray-900 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
                   <option value="">Select subject</option>
                   <option>Mathematics</option>
                   <option>Computer Science</option>
@@ -97,124 +123,99 @@ function TeacherCreateClassroomTab({ onCreateClass }) {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Duration (min)</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Duration
+                </label>
                 <select value={form.duration} onChange={e => handleChange('duration', e.target.value)}
-                  className="input-base">
-                  <option value="30">30 minutes</option>
-                  <option value="45">45 minutes</option>
-                  <option value="60">60 minutes</option>
-                  <option value="75">75 minutes</option>
-                  <option value="90">90 minutes</option>
-                  <option value="120">120 minutes</option>
+                  className="w-full px-4 py-3 border border-gray-300 bg-white rounded-xl text-gray-900 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                  <option value="30">30 Minutes</option>
+                  <option value="45">45 Minutes</option>
+                  <option value="60">60 Minutes</option>
+                  <option value="75">75 Minutes</option>
+                  <option value="90">90 Minutes</option>
+                  <option value="120">120 Minutes</option>
                 </select>
               </div>
             </div>
 
-            {/* Schedule */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Date & Time Row */}
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                  Date <span className="text-red-500">*</span>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Date
                 </label>
                 <input type="date" required value={form.scheduleDate} onChange={e => handleChange('scheduleDate', e.target.value)}
-                  className="input-base" />
+                  className="w-full px-4 py-3 border border-gray-300 bg-white rounded-xl text-gray-900 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                  Time <span className="text-red-500">*</span>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Start Time
                 </label>
                 <input type="time" required value={form.scheduleTime} onChange={e => handleChange('scheduleTime', e.target.value)}
-                  className="input-base" />
+                  className="w-full px-4 py-3 border border-gray-300 bg-white rounded-xl text-gray-900 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" />
               </div>
             </div>
 
-            {/* Max students */}
+            {/* Max Students */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Max Students</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Max Students
+              </label>
               <input type="number" value={form.maxStudents} onChange={e => handleChange('maxStudents', e.target.value)}
-                min="1" max="500" className="input-base w-32" />
+                min="1" max="500"
+                className="w-full px-4 py-3 border border-gray-300 bg-white rounded-xl text-gray-900 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" />
             </div>
 
             {/* Description */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Description</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Description
+              </label>
               <textarea value={form.description} onChange={e => handleChange('description', e.target.value)}
-                placeholder="Describe the class content, prerequisites, and what students should prepare..."
-                rows={4} className="input-base resize-none" />
+                placeholder="Briefly describe the classroom objectives..."
+                rows={3}
+                className="w-full px-4 py-3 border border-gray-300 bg-white rounded-xl text-gray-900 placeholder-gray-500 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none" />
             </div>
 
-            {/* Toggles */}
-            <div className="space-y-3 pt-2">
-              <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300">Class Settings</h3>
-              {[
-                { key: 'enableRecording', label: 'Enable Recording', desc: 'Automatically record the session' },
-                { key: 'enableChat', label: 'Enable Chat', desc: 'Allow students to chat during class' },
-                { key: 'enableAI', label: 'AI Monitoring', desc: 'Enable AI engagement tracking' },
-              ].map(toggle => (
-                <label key={toggle.key} className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 cursor-pointer">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{toggle.label}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{toggle.desc}</p>
-                  </div>
-                  <button type="button" onClick={() => handleChange(toggle.key, !form[toggle.key])}
-                    className={`relative w-11 h-6 rounded-full transition-colors ${form[toggle.key] ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600'}`}>
-                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${form[toggle.key] ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
-                  </button>
-                </label>
-              ))}
-            </div>
-
-            {/* Submit */}
-            <button type="submit" disabled={creating}
-              className="w-full py-3 bg-primary-600 text-white font-semibold rounded-xl hover:bg-primary-700 transition flex items-center justify-center gap-2 disabled:opacity-50">
-              <PlusSquare className="w-5 h-5" />
+            {/* Submit Button */}
+            <button type="submit" disabled={creating || !form.classId}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl transition flex items-center justify-center gap-2 text-lg shadow-md hover:shadow-lg">
               {creating ? 'Creating...' : 'Create Classroom'}
             </button>
           </form>
         </div>
 
-        {/* Sidebar tips */}
-        <div className="space-y-4">
-          <div className="card-interactive p-5">
-            <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-primary-500" />
-              Quick Tips
-            </h3>
-            <ul className="space-y-2.5 text-xs text-gray-600 dark:text-gray-400">
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary-500 mt-1.5 flex-shrink-0" />
-                Use a unique Class ID — students will use it to join
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary-500 mt-1.5 flex-shrink-0" />
-                Set the correct date and time for scheduling
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary-500 mt-1.5 flex-shrink-0" />
-                Enable AI monitoring for engagement insights
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary-500 mt-1.5 flex-shrink-0" />
-                Share the class ID with your students after creation
-              </li>
-            </ul>
+        {/* Quick Tips Section */}
+        <div className="mt-8 bg-white rounded-3xl shadow-lg p-8 border border-blue-100">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+              <AlertCircle className="w-5 h-5 text-blue-600" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">Quick Tips</h2>
           </div>
 
-          {/* Preview card */}
-          {form.title && (
-            <div className="card-interactive p-5 border-l-4 border-primary-500">
-              <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Preview</h3>
-              <h4 className="text-sm font-bold text-gray-900 dark:text-white">{form.title}</h4>
-              {form.classId && <p className="text-xs text-gray-500 mt-1">ID: {form.classId}</p>}
-              {form.subject && <p className="text-xs text-gray-500 mt-0.5">{form.subject}</p>}
-              <div className="flex items-center gap-3 mt-2 text-[11px] text-gray-400">
-                {form.scheduleDate && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{form.scheduleDate}</span>}
-                {form.scheduleTime && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{form.scheduleTime}</span>}
-                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{form.duration}m</span>
+          <div className="space-y-3 mb-6">
+            {[
+              'Generate a unique Class ID so students can easily join your classroom',
+              'Use the current date and time to schedule your classroom sessions',
+              'Add a title to help students identify the subject and topic',
+              'Set the maximum students limit to control classroom capacity',
+            ].map((tip, idx) => (
+              <div key={idx} className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <CheckCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-gray-700">{tip}</p>
               </div>
-              {form.description && <p className="text-xs text-gray-500 mt-2 line-clamp-2">{form.description}</p>}
+            ))}
+          </div>
+
+          {/* Illustrative Image Placeholder */}
+          <div className="mt-6 w-full bg-gradient-to-br from-blue-100 to-indigo-100 rounded-2xl h-48 flex items-center justify-center border-2 border-dashed border-blue-300">
+            <div className="text-center">
+              <Zap className="w-12 h-12 text-blue-400 mx-auto mb-2" />
+              <p className="text-sm text-blue-600 font-medium">Interactive Classroom Experience</p>
+              <p className="text-xs text-blue-500 mt-1">Real-time engagement with advanced monitoring</p>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

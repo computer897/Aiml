@@ -429,7 +429,7 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
     try {
       switch (activeTab) {
         case 'create-classroom':
-          return <TeacherCreateClassroomTab onCreateClass={handleCreateClass} />
+          return <TeacherCreateClassroomTab onCreateClass={handleCreateClass} onBack={() => onTabChange?.('dashboard')} />
         case 'classroom-list':
           return <TeacherClassroomListTab
             classes={classes}
