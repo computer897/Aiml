@@ -351,6 +351,7 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
   const handleCreateClass = async (formData) => {
     setLoading(true)
     try {
+      console.log('[TeacherDashboard] Creating class with data:', formData)
       const classData = {
         class_id: formData.classId,
         title: formData.title,
@@ -358,8 +359,10 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
         schedule_time: new Date(formData.scheduleTime).toISOString(),
         duration_minutes: parseInt(formData.duration, 10),
       }
+      console.log('[TeacherDashboard] Sending to API:', classData)
 
       const response = await classAPI.create(classData)
+      console.log('[TeacherDashboard] Class created successfully:', response)
       notifyClassEvent(
         'New Class Created',
         `"${response.title}" has been created. Class ID: ${response.class_id}`
@@ -367,6 +370,7 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
       notifySuccess('Success', `Classroom "${response.title}" created successfully!`)
       await loadTeacherData()
     } catch (error) {
+      console.error('[TeacherDashboard] Class creation failed:', error)
       alert('Failed to create class: ' + (error.message || 'Unknown error'))
     } finally {
       setLoading(false)
@@ -376,22 +380,24 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
   const handleStartClass = async () => {
     if (classes.length === 0) return alert('Please create a class first!')
     if (!classes[0]) return alert('Invalid class data')
-    
+
     try {
-      console.log('Starting class:', classes[0].class_id)
+      console.log('[TeacherDashboard] Starting class:', classes[0].class_id)
       const response = await classAPI.activate(classes[0].class_id)
-      console.log('Class activated:', response)
-      
+      console.log('[TeacherDashboard] Class activated response:', response)
+
       if (!response || !response.session_id) {
+        console.error('[TeacherDashboard] Invalid response - missing session_id:', response)
         throw new Error('Invalid response from server - session not created')
       }
-      
+
+      console.log('[TeacherDashboard] Navigating to classroom with sessionId:', response.session_id)
       navigate(`/classroom/${classes[0].class_id}`, {
         state: { sessionId: response.session_id, classData: classes[0] },
       })
-    } catch (error) { 
-      console.error('Error starting class:', error)
-      alert('Failed to activate class: ' + (error.message || 'Unknown error')) 
+    } catch (error) {
+      console.error('[TeacherDashboard] Error starting class:', error)
+      alert('Failed to activate class: ' + (error.message || 'Unknown error'))
     }
   }
 
