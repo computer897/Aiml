@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Video, BarChart3, Users, Clock, Upload, FileText,
   Bell, ChevronRight, BookOpen, Play, AlertCircle, RefreshCw,
-  Trash2, Radio
+  Trash2, Radio, PlusSquare
 } from 'lucide-react'
 import { io } from 'socket.io-client'
 import { classAPI, attendanceAPI } from '../services/api'
@@ -348,6 +348,31 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
     } catch { /* silent */ } finally { setLoading(false) }
   }
 
+  const handleCreateClass = async (formData) => {
+    setLoading(true)
+    try {
+      const classData = {
+        class_id: formData.classId,
+        title: formData.title,
+        description: formData.description || '',
+        schedule_time: new Date(formData.scheduleTime).toISOString(),
+        duration_minutes: parseInt(formData.duration, 10),
+      }
+
+      const response = await classAPI.create(classData)
+      notifyClassEvent(
+        'New Class Created',
+        `"${response.title}" has been created. Class ID: ${response.class_id}`
+      )
+      notifySuccess('Success', `Classroom "${response.title}" created successfully!`)
+      await loadTeacherData()
+    } catch (error) {
+      alert('Failed to create class: ' + (error.message || 'Unknown error'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleStartClass = async () => {
     if (classes.length === 0) return alert('Please create a class first!')
     if (!classes[0]) return alert('Invalid class data')
@@ -401,25 +426,36 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
   const presentStudents = attendanceData.filter(a => a.attendance_status === 'present').length
 
   const renderTabContent = (activeTab, onTabChange) => {
-    switch (activeTab) {
-      case 'create-classroom':
-        return <TeacherCreateClassroomTab onCreateClass={handleCreateClass} />
-      case 'classroom-list':
-        return <TeacherClassroomListTab classes={classes} onNavigate={(id) => navigate(`/classroom/${id}`)} onStartClass={handleStartClass} onCreateClass={() => onTabChange('create-classroom')} onDeleteClass={handleDeleteClass} />
-      case 'attending-students':
-        return <TeacherAttendingStudentsTab classes={classes} />
-      case 'ai-study-plan':
-        return <TeacherAIStudyPlanTab />
-      case 'notes-materials':
-        return <TeacherNotesMaterialsTab />
-      case 'announcements':
-        return <TeacherAnnouncementsTab />
-      default:
-        return renderDashboard()
+    try {
+      switch (activeTab) {
+        case 'create-classroom':
+          return <TeacherCreateClassroomTab onCreateClass={handleCreateClass} />
+        case 'classroom-list':
+          return <TeacherClassroomListTab
+            classes={classes}
+            onNavigate={(id) => navigate(`/classroom/${id}`)}
+            onStartClass={handleStartClass}
+            onCreateClass={() => onTabChange?.('create-classroom')}
+            onDeleteClass={handleDeleteClass}
+          />
+        case 'attending-students':
+          return <TeacherAttendingStudentsTab classes={classes} />
+        case 'ai-study-plan':
+          return <TeacherAIStudyPlanTab />
+        case 'notes-materials':
+          return <TeacherNotesMaterialsTab />
+        case 'announcements':
+          return <TeacherAnnouncementsTab />
+        default:
+          return renderDashboard(onTabChange)
+      }
+    } catch (error) {
+      console.error('Error rendering tab:', error)
+      return <div className="p-4 text-red-500">Error loading tab. Please refresh the page.</div>
     }
   }
 
-  const renderDashboard = () => (
+  const renderDashboard = (onTabChange) => (
     <div className="spacing-lg">
         {/* ── Welcome Banner ── Redesigned for professional look */}
         <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-6 sm:p-8 text-white relative overflow-hidden shadow-lg">
@@ -436,6 +472,12 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
 
             {/* Action Buttons */}
             <div className="flex flex-wrap gap-3 mt-6">
+              <button
+                onClick={() => onTabChange?.('create-classroom')}
+                className="bg-white/15 hover:bg-white/25 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all shadow-md hover:shadow-lg border border-white/20"
+              >
+                <PlusSquare className="w-5 h-5" /> Create Class
+              </button>
               <button onClick={handleStartClass} className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all shadow-md hover:shadow-lg">
                 <Play className="w-5 h-5" /> Start Class
               </button>

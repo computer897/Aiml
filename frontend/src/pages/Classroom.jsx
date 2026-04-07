@@ -2733,7 +2733,7 @@ function Classroom({ user }) {
           onClose={() => setToast(null)}
         />
       )}
-      <div>
+      <div className="min-h-screen">
         {loading ? (
           <div className="h-[100dvh] bg-gray-900 flex items-center justify-center">
             <div className="text-center">
@@ -2742,7 +2742,12 @@ function Classroom({ user }) {
             </div>
           </div>
         ) : !classData ? (
-          null
+          <div className="h-[100dvh] bg-gray-950 flex items-center justify-center">
+            <div className="text-center">
+              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+              <p className="text-gray-400 text-sm">Classroom not found. Redirecting...</p>
+            </div>
+          </div>
         ) : isFinished ? (
           <ClassFinishedScreen classData={classData} onLeave={handleLeave} />
         ) : user.role === 'teacher' ? (
