@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, StickyNote,
   Calendar, Settings, LogOut, ChevronLeft, ChevronRight,
-  List, Users, Megaphone
+  List, Users, Megaphone, PlusSquare
 } from 'lucide-react'
 
 // ── Student nav items ──
@@ -17,6 +17,7 @@ const studentNavItems = [
 // ── Teacher nav items ──
 const teacherNavItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'create-classroom', label: 'Create Classroom', icon: PlusSquare },
   { id: 'classroom-list', label: 'Classroom List', icon: List },
   { id: 'attending-students', label: 'Attending Students', icon: Users },
   { id: 'announcements', label: 'Announcements', icon: Megaphone, route: '/announcements' },
