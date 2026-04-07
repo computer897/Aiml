@@ -3,21 +3,21 @@
  * Architecture: Star topology - Teacher connects with each student individually
  * Students only connect with the teacher (not with each other)
  * Uses Socket.IO for signaling
- * 
+ *
  * WAITING ROOM SYSTEM:
  * - Students must request to join and wait for teacher approval
  * - WebRTC connections only start after approval
- * 
+ *
  * DEPLOYMENT NOTE:
- * The signaling server (server.js) runs on a SEPARATE Node.js service from the FastAPI backend.
- * In production, you MUST set VITE_SOCKET_URL to your signaling server URL.
- * Example: VITE_SOCKET_URL=https://aiml-signaling.onrender.com
+ * The signaling now runs on the SAME FastAPI backend service.
+ * VITE_SOCKET_URL should point to the FastAPI backend URL.
+ * Example: VITE_SOCKET_URL=https://aiml-1-rjdv.onrender.com
  */
 
 import { io } from 'socket.io-client'
 
-// Signaling server URL - must point to the Node.js Socket.IO server (NOT the FastAPI backend)
-// In production, VITE_SOCKET_URL must be set to the signaling server URL
+// Signaling server URL - now integrated into FastAPI backend
+// In production, VITE_SOCKET_URL must be set to the FastAPI backend URL
 const normalizeSocketUrl = (rawUrl) => {
   if (!rawUrl || typeof rawUrl !== 'string') return null
 
@@ -51,16 +51,16 @@ const getSocketUrl = () => {
     const configuredUrl = ensureHttpsIfNeeded(normalizeSocketUrl(import.meta.env.VITE_SOCKET_URL))
     if (configuredUrl) return configuredUrl
   }
-  
+
   // In development, use localhost
   if (import.meta.env.DEV) {
-    return 'http://localhost:5000'
+    return 'http://localhost:8000'
   }
-  
-  // Production fallback - try common signaling server names
-  // This should be overridden with VITE_SOCKET_URL in production
-  console.warn('[WebRTC] VITE_SOCKET_URL not set! Using fallback URL. Set this env var for production.')
-  return ensureHttpsIfNeeded('https://aiml-signaling.onrender.com')
+
+  // Production fallback - use the API URL
+  const apiUrl = (import.meta.env.VITE_API_URL || 'https://aiml-1-rjdv.onrender.com').replace(/\/+$/, '')
+  console.warn('[WebRTC] Using API URL as signaling URL:', apiUrl)
+  return ensureHttpsIfNeeded(apiUrl)
 }
 
 const SOCKET_URL = getSocketUrl()

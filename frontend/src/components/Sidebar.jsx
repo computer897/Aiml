@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, BookOpen, StickyNote, Video,
+  LayoutDashboard, BookOpen, StickyNote,
   Calendar, Settings, LogOut, ChevronLeft, ChevronRight,
-  PlusSquare, List, Users, FileText, Megaphone
+  List, Users, Megaphone
 } from 'lucide-react'
 
 // ── Student nav items ──
@@ -11,14 +11,12 @@ const studentNavItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'classes', label: 'Classes', icon: BookOpen },
   { id: 'notes', label: 'Notes & Materials', icon: StickyNote, route: '/documents' },
-  { id: 'recordings', label: 'Recordings', icon: Video },
   { id: 'calendar', label: 'Calendar', icon: Calendar },
 ]
 
 // ── Teacher nav items ──
 const teacherNavItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'create-classroom', label: 'Create Classroom', icon: PlusSquare },
   { id: 'classroom-list', label: 'Classroom List', icon: List },
   { id: 'attending-students', label: 'Attending Students', icon: Users },
   { id: 'announcements', label: 'Announcements', icon: Megaphone, route: '/announcements' },
@@ -95,11 +93,13 @@ function Sidebar({ collapsed, onToggle, activeTab, onTabChange, onSettingsOpen, 
       >
         {/* ── LOGO SECTION ── Subtle spacing, no border */}
         <div className={`flex items-center h-16 px-4 flex-shrink-0 ${collapsed ? 'justify-center' : 'gap-3'}`}>
-          <img
-            src="/logo.png"
-            alt="VC Room"
-            className={`${collapsed ? 'w-10 h-10' : 'w-9 h-9'} object-contain flex-shrink-0`}
-          />
+          <div className={`${collapsed ? 'w-10 h-10' : 'w-10 h-10'} bg-white/10 backdrop-blur-md border border-white/20 rounded-[15px] flex items-center justify-center flex-shrink-0 shadow-lg`}>
+            <img
+              src="/logo.png"
+              alt="VC Room"
+              className={`${collapsed ? 'w-8 h-8' : 'w-8 h-8'} object-contain`}
+            />
+          </div>
           {!collapsed && (
             <div className="min-w-0 animate-fade-in">
               <h1 className="text-sm font-bold text-[#1a1f2e] dark:text-white leading-tight truncate">VC Room</h1>

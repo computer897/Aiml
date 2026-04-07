@@ -9,13 +9,11 @@ import { notifyClassEvent, notifySuccess } from '../services/notifications'
 import DashboardLayout from '../layouts/DashboardLayout'
 import StudentClassesTab from '../components/tabs/StudentClassesTab'
 import StudentNotesTab from '../components/tabs/StudentNotesTab'
-import StudentRecordingsTab from '../components/tabs/StudentRecordingsTab'
 import StudentChatTab from '../components/tabs/StudentChatTab'
 import StudentCalendarTab from '../components/tabs/StudentCalendarTab'
 
 // Storage keys (matching other components)
 const NOTES_STORAGE_KEY = 'student_notes'
-const RECORDINGS_STORAGE_KEY = 'class_recordings'
 
 function StudentDashboard({ user, onLogout, onUserUpdate }) {
   const navigate = useNavigate()
@@ -23,20 +21,16 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
   const [classToJoin, setClassToJoin] = useState('')
   const [loading, setLoading] = useState(false)
   const [notes, setNotes] = useState([])
-  const [recordings, setRecordings] = useState([])
   const [notifications, setNotifications] = useState([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
 
   useEffect(() => {
     loadEnrolledClasses()
     loadStudentNotifications()
-    // Load data from localStorage for notes/recordings
+    // Load data from localStorage for notes
     try {
       const savedNotes = localStorage.getItem(NOTES_STORAGE_KEY)
       if (savedNotes) setNotes(JSON.parse(savedNotes))
-      
-      const savedRecordings = localStorage.getItem(RECORDINGS_STORAGE_KEY)
-      if (savedRecordings) setRecordings(JSON.parse(savedRecordings))
     } catch (e) {
       console.error('Error loading data from localStorage:', e)
     }
@@ -112,8 +106,6 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
         return <StudentClassesTab onJoinClass={handleJoinClass} />
       case 'notes':
         return <StudentNotesTab />
-      case 'recordings':
-        return <StudentRecordingsTab />
       case 'chat':
         return <StudentChatTab />
       case 'calendar':
@@ -302,45 +294,6 @@ function StudentDashboard({ user, onLogout, onUserUpdate }) {
               </div>
             </section>
 
-            {/* ── Recorded Sessions ── */}
-            <section className="card-interactive overflow-hidden">
-              <div className="flex items-center justify-between p-5 pb-0">
-                <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                  <Video className="w-5 h-5 text-red-500" />
-                  Recorded Sessions
-                </h2>
-              </div>
-              <div className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {recordings.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4 col-span-full">No recordings available</p>
-                ) : recordings.slice(0, 3).map(rec => {
-                  const c = colorMap[rec.color] || colorMap.primary
-                  return (
-                    <div key={rec.id} className="group rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden hover:shadow-md transition-all">
-                      {/* Thumbnail placeholder */}
-                      <div className={`relative h-28 ${c.bg} flex items-center justify-center`}>
-                        <div className="w-12 h-12 bg-white/30 dark:bg-white/10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                          <Play className={`w-6 h-6 ${c.text} fill-current`} />
-                        </div>
-                        <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/60 text-white text-[10px] font-medium rounded">
-                          {rec.duration}
-                        </span>
-                      </div>
-                      <div className="p-3">
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{rec.className}</h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{rec.teacher}</p>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="text-[11px] text-gray-400">{rec.date}</span>
-                          <button className="text-[11px] font-semibold text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1">
-                            <Eye className="w-3 h-3" /> View
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </section>
           </div>
 
           {/* RIGHT COLUMN (1/3) */}

@@ -50,7 +50,7 @@ export function PWAInstallBanner() {
           <div className="p-4">
             <div className="flex items-start gap-3">
               {/* App Icon */}
-              <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-[#1e3a5f] to-[#2563eb] rounded-xl flex items-center justify-center">
+              <div className="flex-shrink-0 w-14 h-14 bg-white/10 backdrop-blur-md border border-white/20 rounded-[15px] flex items-center justify-center shadow-lg">
                 <img src="/logo.png" alt="VC Room" className="w-10 h-10" />
               </div>
               
@@ -102,7 +102,7 @@ export function PWAInstallBanner() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-scale-in">
             <div className="p-6">
-              <div className="flex items-center justify-center w-16 h-16 mx-auto bg-gradient-to-br from-[#1e3a5f] to-[#2563eb] rounded-2xl mb-4">
+              <div className="flex items-center justify-center w-16 h-16 mx-auto bg-white/10 backdrop-blur-md border border-white/20 rounded-[15px] shadow-lg mb-4">
                 <img src="/logo.png" alt="VC Room" className="w-10 h-10" />
               </div>
               

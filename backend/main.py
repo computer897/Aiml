@@ -10,7 +10,9 @@ from contextlib import asynccontextmanager
 from app import database
 from app.routes import auth_router, class_router, attendance_router, join_request_router, announcement_router, document_router
 from app.config import settings
+from app.socket_events import setup_socket_events
 import logging
+import socketio
 
 # Configure logging
 logging.basicConfig(
@@ -68,6 +70,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Configure Socket.IO
+sio = socketio.AsyncServer(
+    async_mode='asgi',
+    cors_allowed_origins=cors_origins,
+    pingInterval=25,
+    pingTimeout=20,
+    maxHttpBufferSize=1e6,
+)
+
+# Register Socket.IO event handlers
+setup_socket_events(sio)
+
+# Wrap app with SocketIO ASGI app
+socket_app = socketio.ASGIApp(sio, app)
+
 # Register API routes
 app.include_router(auth_router)
 app.include_router(class_router)
@@ -81,7 +98,7 @@ app.include_router(document_router)
 async def root():
     """
     Root endpoint - API health check.
-    
+
     Returns:
         API status and information
     """
@@ -96,7 +113,8 @@ async def root():
             "AI-powered Face Detection",
             "Real-time Engagement Tracking",
             "WebSocket Support",
-            "Attendance Reports"
+            "Attendance Reports",
+            "Socket.IO Real-time Updates"
         ]
     }
 
@@ -147,9 +165,9 @@ if __name__ == "__main__":
     logger.info(f"Starting server on {settings.host}:{port} (env={settings.environment})")
 
     uvicorn.run(
-        "main:app",
+        socket_app,
         host=settings.host,
         port=port,
-        reload=not is_prod,
         log_level="info",
     )
+

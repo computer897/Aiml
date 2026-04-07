@@ -3,6 +3,9 @@ fastapi==0.109.0
 uvicorn[standard]==0.27.0
 python-multipart==0.0.6
 websockets==12.0
+python-socketio==5.11.0
+python-engineio==4.9.0
+aioredis==2.0.1
 
 # Authentication
 python-jose[cryptography]==3.3.0
