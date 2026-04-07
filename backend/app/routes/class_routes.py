@@ -232,32 +232,55 @@ async def get_class(
 ):
     """
     Get class details by class_id.
-    
+
     Google Meet style: Any authenticated user can view class details
     using the class ID. No college/department restrictions.
-    
+
     Args:
         class_id: Class identifier
         current_user: Authenticated user
         db: Database instance
-        
+
     Returns:
         Class information
-        
+
     Raises:
         HTTPException: If class not found
     """
     class_doc = await db.classes.find_one({"class_id": class_id})
-    
+
     if not class_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Class not found"
         )
-    
+
+    # Auto-end class if scheduled end time has passed
+    if class_doc.get("is_active") and class_doc.get("schedule_time") and class_doc.get("duration_minutes"):
+        schedule_time = class_doc["schedule_time"]
+        duration_minutes = class_doc["duration_minutes"]
+        end_time = schedule_time + timedelta(minutes=duration_minutes)
+
+        if datetime.utcnow() >= end_time:
+            logger.info(f"Auto-ending class {class_id} - scheduled end time reached")
+            # Update the class to mark it as finished
+            await db.classes.update_one(
+                {"class_id": class_id},
+                {
+                    "$set": {
+                        "is_active": False,
+                        "is_finished": True,
+                        "status": "ended"
+                    }
+                }
+            )
+            class_doc["is_active"] = False
+            class_doc["is_finished"] = True
+            class_doc["status"] = "ended"
+
     # Google Meet style - anyone with the class ID can access
     # No college/department restrictions
-    
+
     class_doc["id"] = str(class_doc["_id"])
     return ClassResponse(**class_doc)
 
@@ -402,6 +425,30 @@ async def activate_class(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to activate this class"
         )
+
+    # Check if class has already passed its scheduled end time
+    if class_doc.get("schedule_time") and class_doc.get("duration_minutes"):
+        schedule_time = class_doc["schedule_time"]
+        duration_minutes = class_doc["duration_minutes"]
+        end_time = schedule_time + timedelta(minutes=duration_minutes)
+
+        if datetime.utcnow() >= end_time:
+            logger.warning(f"Cannot activate class {class_id} - scheduled end time has passed")
+            # Auto-mark as finished
+            await db.classes.update_one(
+                {"class_id": class_id},
+                {
+                    "$set": {
+                        "is_active": False,
+                        "is_finished": True,
+                        "status": "ended"
+                    }
+                }
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot activate class - scheduled end time ({end_time.isoformat()}) has already passed"
+            )
 
     # Generate session ID
     session_id = f"{class_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"

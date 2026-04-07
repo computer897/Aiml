@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Mic, MicOff, Video, VideoOff, MessageSquare, Phone,
   HelpCircle, Users, Monitor, Loader2, Clock,
-  Shield, AlertCircle, MonitorUp, Hand, X, UserX, Eye, ArrowRight
+  Shield, AlertCircle, MonitorUp, Hand, X, UserX, Eye
 } from 'lucide-react'
 import { classAPI, attendanceAPI, createWebSocket, webcamUtils, healthAPI } from '../services/api'
 import { createWebRTCManager } from '../services/webrtc'
@@ -114,119 +114,62 @@ function PreJoinScreen({ classData, user, onJoin, onLeave }) {
     onJoin({ micOn, videoOn, stream })
   }
 
-  // Attendance requirement (70% of class time)
-  const attendanceRequirement = Math.ceil(classDurationMinutes * 0.7)
-
   const showVideo = permissionState === 'granted' && videoOn
 
   return (
     <div className="h-[100dvh] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
       {showPermissionDialog && <PermissionDialog onAllow={requestPermissions} onDeny={denyPermissions} />}
       <div className="max-w-2xl w-full flex flex-col items-center justify-center">
-        {/* Pre-Join Card - Modern Design */}
-        <div className="w-full max-w-md bg-gray-800/90 backdrop-blur-sm border border-gray-700 rounded-2xl shadow-2xl overflow-hidden">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-blue-600 to-blue-800 px-6 py-8 text-center">
-            <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-4">
-              <Video className="w-7 h-7 text-white" />
-            </div>
-            <h2 className="text-white text-2xl font-bold mb-2">Ready to Join?</h2>
-            <p className="text-blue-100 text-sm">Check your video and audio before joining the class</p>
-          </div>
-
-          {/* Video Preview */}
-          <div className="p-6">
-            <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-video w-full mb-6 border border-gray-700">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className={`w-full h-full object-cover ${showVideo ? '' : 'hidden'}`}
-                style={{ transform: 'scaleX(-1)' }}
-              />
-              {!showVideo && (
-                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
-                  <div className="text-center">
-                    <div className="w-20 h-20 bg-blue-600/20 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <span className="text-white text-3xl font-bold">
-                        {user?.name?.split(' ').map(n => n[0]).join('') || '?'}
-                      </span>
-                    </div>
-                    <p className="text-gray-400 text-sm">Camera off</p>
-                  </div>
-                </div>
-              )}
-              {permissionState === 'denied' && (
-                <div className="absolute inset-0 bg-gray-900/90 flex items-center justify-center">
-                  <div className="text-center p-4">
-                    <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-3" />
-                    <p className="text-white font-medium mb-2">Camera access blocked</p>
-                    <p className="text-gray-400 text-sm mb-4">Click the camera icon in your browser's address bar</p>
-                    <button onClick={requestPermissions} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium">
-                      Try Again
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Settings */}
-            <div className="space-y-4 mb-6">
-              {/* Microphone Toggle */}
-              <div className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg border border-gray-700">
-                <div className="flex items-center gap-2">
-                  {micOn ? <Mic className="w-5 h-5 text-green-400" /> : <MicOff className="w-5 h-5 text-red-400" />}
-                  <span className="text-gray-300 font-medium">Microphone</span>
-                </div>
-                <button
-                  onClick={() => setMicOn(v => !v)}
-                  className={`px-3 py-1 rounded-lg transition text-sm font-medium ${
-                    micOn
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-700 text-gray-300'
-                  }`}
-                >
-                  {micOn ? 'On' : 'Off'}
-                </button>
+        {/* Video Preview Only */}
+        <div className="relative bg-gray-800 rounded-2xl overflow-hidden aspect-video w-full max-w-md mb-8">
+          <video 
+            ref={videoRef} 
+            autoPlay 
+            playsInline 
+            muted 
+            className={`w-full h-full object-cover ${showVideo ? '' : 'hidden'}`} 
+            style={{ transform: 'scaleX(-1)' }} 
+          />
+          {!showVideo && (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
+              <div className="w-24 h-24 bg-primary-600 rounded-full flex items-center justify-center">
+                <span className="text-white text-3xl font-bold">
+                  {user?.name?.split(' ').map(n => n[0]).join('') || '?'}
+                </span>
               </div>
-
-              {/* Camera Toggle */}
-              <div className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg border border-gray-700">
-                <div className="flex items-center gap-2">
-                  {videoOn ? <Video className="w-5 h-5 text-green-400" /> : <VideoOff className="w-5 h-5 text-red-400" />}
-                  <span className="text-gray-300 font-medium">Camera</span>
-                </div>
-                <button
-                  onClick={() => setVideoOn(v => !v)}
-                  className={`px-3 py-1 rounded-lg transition text-sm font-medium ${
-                    videoOn
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-700 text-gray-300'
-                  }`}
-                >
-                  {videoOn ? 'On' : 'Off'}
+            </div>
+          )}
+          {permissionState === 'denied' && (
+            <div className="absolute inset-0 bg-gray-900/90 flex items-center justify-center">
+              <div className="text-center p-4">
+                <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-3" />
+                <p className="text-white font-medium mb-2">Camera access blocked</p>
+                <p className="text-gray-400 text-sm">Click the camera icon in your browser&apos;s address bar to enable</p>
+                <button onClick={requestPermissions} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition text-sm">
+                  Try Again
                 </button>
               </div>
             </div>
-
-            {/* Buttons */}
-            <div className="flex gap-3">
-              <button
-                onClick={onLeave}
-                className="flex-1 px-4 py-3 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700 transition font-semibold"
-              >
-                Cancel
+          )}
+          {permissionState === 'granted' && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-3">
+              <button onClick={() => setMicOn(v => !v)} className={`p-3 rounded-full transition ${micOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}>
+                {micOn ? <Mic className="w-5 h-5 text-white" /> : <MicOff className="w-5 h-5 text-white" />}
               </button>
-              <button
-                onClick={handleJoin}
-                className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-semibold flex items-center justify-center gap-2"
-              >
-                <span>Join Now</span>
-                <ArrowRight className="w-4 h-4" />
+              <button onClick={() => setVideoOn(v => !v)} className={`p-3 rounded-full transition ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}>
+                {videoOn ? <Video className="w-5 h-5 text-white" /> : <VideoOff className="w-5 h-5 text-white" />}
               </button>
             </div>
-          </div>
+          )}
+        </div>
+        {/* Simple Join/Cancel Buttons */}
+        <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md">
+          <button onClick={handleJoin} disabled={loading} className="flex-1 px-6 py-3 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-semibold disabled:opacity-50">
+            {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : user?.role === 'teacher' ? 'Start Meeting' : 'Join Now'}
+          </button>
+          <button onClick={onLeave} className="px-6 py-3 bg-gray-700 text-gray-300 rounded-full hover:bg-gray-600 transition font-medium">
+            Cancel
+          </button>
         </div>
       </div>
     </div>
@@ -271,7 +214,7 @@ function WaitingRoom({ classData, onClassStarted, onLeave }) {
       <div className="max-w-lg w-full text-center">
         <div className="relative inline-flex mb-6 sm:mb-8">
           <div className="absolute inset-0 bg-primary-500/20 rounded-full animate-ping" />
-          <div className="relative w-20 h-20 sm:w-28 sm:h-28 bg-white/10 backdrop-blur-md border border-white/20 rounded-[15px] flex items-center justify-center shadow-2xl p-3">
+          <div className="relative w-20 h-20 sm:w-28 sm:h-28 bg-white/10 backdrop-blur rounded-full flex items-center justify-center shadow-2xl p-3">
             <img src="/logo.png" alt="VC Room" className="w-full h-full object-contain" />
           </div>
         </div>
@@ -506,7 +449,7 @@ function ClassFinishedScreen({ classData, onLeave }) {
           <div className="px-8 pb-6">
             <div className="bg-gray-800/50 rounded-2xl p-5 space-y-4">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-[15px] flex items-center justify-center p-2 shadow-lg">
+                <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center p-2">
                   <img src="/logo.png" alt="VC Room" className="w-full h-full object-contain" />
                 </div>
                 <div>
@@ -592,6 +535,28 @@ function RemovedBanner({ onLeave }) {
         <h2 className="text-white text-xl font-semibold mb-2">You&apos;ve been removed</h2>
         <p className="text-gray-400 text-sm mb-6">The host has removed you from this meeting.</p>
         <button onClick={onLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
+          Return to Dashboard
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Class Not Found / Error Screen ──────────────────────────────────────────
+function ClassNotFoundScreen({ onLeave }) {
+  return (
+    <div className="h-[100dvh] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4 safe-bottom">
+      <div className="max-w-lg w-full text-center">
+        <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-br from-red-600 to-red-700 rounded-full flex items-center justify-center shadow-2xl mx-auto mb-6">
+          <AlertCircle className="w-10 h-10 sm:w-14 sm:h-14 text-white" />
+        </div>
+
+        <h1 className="text-white text-xl sm:text-3xl font-bold mb-2">Class Not Found</h1>
+        <p className="text-gray-400 mb-6 text-sm sm:text-base">
+          This classroom could not be loaded. The class may have been deleted or you don&apos;t have access to it.
+        </p>
+
+        <button onClick={onLeave} className="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition font-medium">
           Return to Dashboard
         </button>
       </div>
@@ -980,19 +945,11 @@ function VideoGrid({ localStream, localVideoOn, localMicOn, remoteStreams, remot
         </>
       )}
 
-      {/* Empty room state - centered waiting message */}
+      {/* Empty room state */}
       {Object.keys(remoteStreams).length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="bg-gray-900/80 border border-gray-700 rounded-2xl p-8 max-w-md text-center shadow-2xl">
-            <div className="w-16 h-16 bg-blue-600/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Clock className="w-8 h-8 text-blue-400" />
-            </div>
-            <h2 className="text-white text-lg font-semibold mb-2">
-              Waiting for students to join...
-            </h2>
-            <p className="text-gray-400 text-sm mb-6">
-              Your classroom is ready. Once students enter the session, their video feeds will appear here.
-            </p>
+        <div className="absolute bottom-28 sm:bottom-32 left-1/2 transform -translate-x-1/2 z-10">
+          <div className="px-4 py-2 bg-gray-800/90 backdrop-blur-sm rounded-full text-gray-400 text-sm border border-gray-700/50">
+            {user?.role === 'teacher' ? 'Waiting for students to join...' : 'Connecting to classroom...'}
           </div>
         </div>
       )}
@@ -1102,7 +1059,6 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   const [showEngagement, setShowEngagement] = useState(false)
   const [showDoubts, setShowDoubts] = useState(false)
   const [showParticipants, setShowParticipants] = useState(false)
-  const [showAttendance, setShowAttendance] = useState(false)
   const [messages, setMessages] = useState([])
   const [unreadMessages, setUnreadMessages] = useState(0)
   const [doubts, setDoubts] = useState([])
@@ -2054,10 +2010,9 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
     setShowDoubts(panel === 'doubts' ? v => !v : false)
     setShowEngagement(panel === 'engagement' ? v => !v : false)
     setShowParticipants(panel === 'participants' ? v => !v : false)
-    // Attendance is now always visible on desktop, no toggle needed
   }
 
-  // Determine active side panel (attendance excluded - always visible)
+  // Determine active side panel
   const activeSidePanel = showChat ? 'chat' : showDoubts ? 'doubts' : showEngagement ? 'engagement' : showParticipants ? 'participants' : null
 
   // ── Student: Show waiting for approval screen ──
@@ -2133,8 +2088,8 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
 
       {/* ── Main Content ── */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Video area – 70% on left */}
-        <div className="flex-1 relative overflow-hidden bg-gray-950 flex flex-col">
+        {/* Video area – fills full height; header & controls are gradient overlays */}
+        <div className="flex-1 relative overflow-hidden bg-gray-950">
           {/* Hidden video element for local stream (needed for canvas capture) */}
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
 
@@ -2143,66 +2098,48 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
             <video ref={attendanceVideoRef} autoPlay playsInline muted className="hidden" />
           )}
 
-          {/* ── Top Bar Overlay (Professional Modern Style) ── */}
-          <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-gray-900/95 via-gray-900/60 to-transparent px-4 sm:px-6 pt-3 sm:pt-4 pb-16 pointer-events-none">
-            <div className="flex items-center justify-between pointer-events-auto max-w-7xl mx-auto">
-              {/* Left Section - Title and Info */}
-              <div className="flex items-center gap-4 min-w-0 flex-1">
-                <div className="w-10 h-10 bg-white/10 backdrop-blur-md border border-white/20 rounded-[15px] flex items-center justify-center flex-shrink-0 shadow-lg">
-                  <img
-                    src="/logo.png"
-                    alt="VC Room"
-                    className="w-8 h-8 object-contain"
-                  />
-                </div>
+          {/* ── Top Bar Overlay (Google Meet style – transparent gradient) ── */}
+          <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/75 via-black/20 to-transparent px-3 sm:px-5 pt-3 sm:pt-4 pb-14 pointer-events-none">
+            <div className="flex items-center justify-between pointer-events-auto">
+              <div className="flex items-center gap-2 min-w-0">
                 <div className="min-w-0">
-                  <h1 className="text-white text-base sm:text-lg font-bold truncate">{classData?.title || 'Virtual Classroom'}</h1>
-                  <p className="text-gray-300 text-xs sm:text-sm truncate">{classData?.teacher_name}</p>
+                  <h1 className="text-white text-sm sm:text-base font-semibold truncate drop-shadow-lg">{classData?.title || 'Classroom'}</h1>
+                  <p className="text-gray-300/80 text-[11px] sm:text-xs truncate">{classData?.teacher_name}</p>
                 </div>
               </div>
-
-              {/* Right Section - Status and Controls */}
-              <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-4">
-                {/* Live Badge */}
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-red-600/90 backdrop-blur-sm border border-red-500/50 rounded-full shadow-lg">
-                  <div className="w-2 h-2 bg-red-300 rounded-full animate-pulse" />
-                  <span className="text-white text-xs sm:text-sm font-semibold">LIVE</span>
+              <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg">
+                  <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-400 rounded-full animate-pulse" />
+                  <span className="text-white text-xs sm:text-sm font-medium">Live</span>
                 </div>
 
-                {/* Class Timer */}
+                {/* Class timer - Teacher sees remaining time, Students see elapsed time */}
                 {user?.role === 'teacher' && classRemainingTime !== null && (
-                  <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gray-800/90 backdrop-blur-sm border border-gray-600/50 rounded-lg">
-                    <Clock className="w-4 h-4 text-blue-400" />
-                    <span className="text-white text-sm font-medium">{Math.floor(classRemainingTime / 60)}m left</span>
+                  <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg">
+                    <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" />
+                    <span className="text-white text-xs sm:text-sm font-medium">
+                      {Math.floor(classRemainingTime / 60)}:{(classRemainingTime % 60).toString().padStart(2, '0')} left
+                    </span>
                   </div>
                 )}
                 {user?.role === 'student' && classElapsedTime > 0 && (
-                  <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gray-800/90 backdrop-blur-sm border border-gray-600/50 rounded-lg">
-                    <Clock className="w-4 h-4 text-blue-400" />
-                    <span className="text-white text-sm font-medium">{Math.floor(classElapsedTime / 60)} min</span>
+                  <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg">
+                    <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" />
+                    <span className="text-white text-xs sm:text-sm font-medium">
+                      {Math.floor(classElapsedTime / 60)} min
+                    </span>
                   </div>
                 )}
-
-                {/* Participants Count */}
                 <button
                   onClick={() => togglePanel('participants')}
-                  className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg backdrop-blur-sm transition font-medium ${
-                    showParticipants
-                      ? 'bg-blue-600 border border-blue-500 text-white'
-                      : 'bg-gray-800/90 border border-gray-600/50 text-gray-300 hover:text-white'
-                  }`}
+                  className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg backdrop-blur-sm transition ${showParticipants ? 'bg-primary-600/90' : 'bg-black/40 hover:bg-black/60 border border-white/10'}`}
                 >
-                  <Users className="w-4 h-4" />
-                  <span className="text-xs sm:text-sm">{participants.count || 1}</span>
+                  <Users className="w-3.5 h-3.5 text-white" />
+                  <span className="text-white text-xs font-medium">{participants.count || 1}</span>
                 </button>
-
-                {/* Leave Button */}
-                <button
-                  onClick={handleLeaveClass}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition shadow-lg text-xs sm:text-sm flex items-center gap-2"
-                >
-                  <Phone className="w-4 h-4" />
-                  <span className="hidden sm:inline">Leave</span>
+                <button onClick={handleLeaveClass} className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-red-600/90 backdrop-blur-sm text-white rounded-lg hover:bg-red-600 transition flex items-center gap-1.5 text-xs sm:text-sm">
+                  <Phone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <span className="hidden sm:inline font-medium">Leave</span>
                 </button>
               </div>
             </div>
@@ -2255,83 +2192,77 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
             />
           </div>
 
-          {/* ── Bottom Controls (Modern Professional Style) ── */}
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-900/95 via-gray-900/70 to-transparent px-4 sm:px-6 py-4 sm:py-6 safe-bottom">
-            <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-3 sm:justify-between">
-              {/* Left side - Engagement button (teacher only) */}
+          {/* ── Bottom Controls (Google Meet style – gradient overlay) ── */}
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-2 sm:px-6 py-3 sm:py-7 safe-bottom overflow-hidden">
+            <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-2 sm:justify-between">
+              {/* Left side buttons */}
               <div className="flex items-center gap-2 order-2 sm:order-1 shrink-0">
                 {user?.role === 'teacher' && (
                   <button
                     onClick={() => togglePanel('engagement')}
-                    className={`p-3 rounded-full transition font-medium flex items-center gap-2 ${
-                      showEngagement
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                        : 'bg-gray-700 hover:bg-gray-600 text-white'
-                    }`}
-                    title="Live Attendance"
+                    className={`p-2.5 sm:p-3 rounded-full transition ${showEngagement ? 'bg-primary-600' : 'bg-gray-700 hover:bg-gray-600'}`}
+                    title="Engagement"
                   >
-                    <Users className="w-5 h-5" />
-                    <span className="hidden sm:inline text-sm">Attendance</span>
+                    <Users className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                   </button>
                 )}
               </div>
 
-              {/* Center controls - Media buttons */}
+              {/* Center controls */}
               <div className="order-1 sm:order-2 flex flex-wrap items-center justify-center gap-2 sm:gap-3 w-full sm:w-auto">
-                {/* Microphone */}
+                {/* Mic */}
                 <button
                   onClick={() => setMicOn(v => !v)}
-                  className={`p-3 sm:p-3.5 rounded-full transition shadow-lg ${
-                    micOn
-                      ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                      : 'bg-red-600 hover:bg-red-700 text-white'
-                  }`}
+                  className={`p-3 sm:p-4 rounded-full transition shrink-0 ${micOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
                   title={micOn ? 'Turn off microphone' : 'Turn on microphone'}
                 >
-                  {micOn ? <Mic className="w-5 h-5 sm:w-6 sm:h-6" /> : <MicOff className="w-5 h-5 sm:w-6 sm:h-6" />}
+                  {micOn ? <Mic className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <MicOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
                 </button>
 
-                {/* Camera */}
+                {/* Video — both teacher and student can toggle camera visibility.
+                    For students, the physical camera stays on (for face detection)
+                    but video is hidden from other participants. */}
                 <button
                   onClick={() => setVideoOn(v => !v)}
-                  className={`p-3 sm:p-3.5 rounded-full transition shadow-lg ${
-                    videoOn
-                      ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                      : 'bg-red-600 hover:bg-red-700 text-white'
-                  }`}
+                  className={`p-3 sm:p-4 rounded-full transition shrink-0 ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
                   title={videoOn ? 'Turn off camera' : 'Turn on camera'}
                 >
-                  {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6" />}
+                  {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
                 </button>
 
-                {/* Screen Share - Teacher only */}
+                {/* Screen share - Teacher only (shown on both mobile and desktop) */}
                 {user?.role === 'teacher' && (
                   <button
                     onClick={handleScreenShare}
-                    className={`p-3 sm:p-3.5 rounded-full transition shadow-lg ${
+                    className={`p-3 sm:p-4 rounded-full transition relative shrink-0 ${
                       isScreenSharing
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                        ? 'bg-primary-600 hover:bg-primary-700'
                         : screenShareSupported
-                          ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                          : 'bg-gray-700/50 cursor-not-allowed text-white/50'
+                          ? 'bg-gray-700 hover:bg-gray-600'
+                          : 'bg-gray-700/50 cursor-not-allowed'
                     }`}
-                    title={isScreenSharing ? 'Stop presenting' : 'Present'}
+                    title={
+                      !screenShareSupported
+                        ? 'Screen sharing not supported on this device'
+                        : isScreenSharing
+                          ? 'Stop presenting'
+                          : 'Present now'
+                    }
                   >
-                    <MonitorUp className="w-5 h-5 sm:w-6 sm:h-6" />
+                    <MonitorUp className={`w-5 h-5 sm:w-6 sm:h-6 ${screenShareSupported ? 'text-white' : 'text-white/50'}`} />
+                    {!screenShareSupported && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full text-[8px] flex items-center justify-center text-gray-900 font-bold">!</span>
+                    )}
                   </button>
                 )}
 
                 {/* Chat */}
                 <button
                   onClick={() => togglePanel('chat')}
-                  className={`p-3 sm:p-3.5 rounded-full transition shadow-lg relative ${
-                    showChat
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                      : 'bg-gray-700 hover:bg-gray-600 text-white'
-                  }`}
+                  className={`p-3 sm:p-4 rounded-full transition relative shrink-0 ${showChat ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-700 hover:bg-gray-600'}`}
                   title="Chat"
                 >
-                  <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6" />
+                  <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   {unreadMessages > 0 && !showChat && (
                     <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-[10px] flex items-center justify-center font-bold">
                       {unreadMessages > 9 ? '9+' : unreadMessages}
@@ -2339,28 +2270,24 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                   )}
                 </button>
 
-                {/* Raise Hand / Doubts Queue */}
+                {/* Doubt (student) / Doubts queue (teacher) */}
                 {user?.role === 'student' && (
                   <button
                     onClick={handleRaiseDoubt}
-                    className="p-3 sm:p-3.5 rounded-full bg-orange-600 hover:bg-orange-700 transition flex items-center gap-2 text-white shadow-lg"
-                    title="Raise Hand"
+                    className="px-3 sm:px-4 py-2.5 sm:py-3 rounded-full bg-orange-600 hover:bg-orange-700 transition flex items-center gap-1.5 shrink-0"
+                    title="Raise a doubt"
                   >
-                    <Hand className="w-5 h-5 sm:w-6 sm:h-6" />
-                    <span className="text-white font-semibold text-xs hidden sm:inline">Hand</span>
+                    <Hand className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                    <span className="text-white font-semibold text-xs hidden sm:inline">Raise Hand</span>
                   </button>
                 )}
                 {user?.role === 'teacher' && (
                   <button
                     onClick={() => togglePanel('doubts')}
-                    className={`p-3 sm:p-3.5 rounded-full transition shadow-lg relative ${
-                      showDoubts
-                        ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                        : 'bg-gray-700 hover:bg-gray-600 text-white'
-                    }`}
-                    title="Student Doubts"
+                    className={`p-3 sm:p-4 rounded-full transition relative shrink-0 ${showDoubts ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-700 hover:bg-gray-600'}`}
+                    title="Student doubts"
                   >
-                    <HelpCircle className="w-5 h-5 sm:w-6 sm:h-6" />
+                    <HelpCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                     {doubts.filter(d => d.status === 'pending').length > 0 && (
                       <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-[10px] flex items-center justify-center font-bold">
                         {doubts.filter(d => d.status === 'pending').length}
@@ -2370,128 +2297,41 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                 )}
               </div>
 
-              {/* Right side - Leave button (mobile) */}
-              <div className="order-3 flex items-center gap-2 sm:hidden shrink-0">
+              {/* Right side */}
+              <div className="order-3 flex items-center gap-2 shrink-0">
                 <button
                   onClick={handleLeaveClass}
-                  className="p-3 rounded-full bg-red-600 hover:bg-red-700 transition text-white shadow-lg"
+                  className="p-2.5 sm:p-3 rounded-full bg-red-600 hover:bg-red-700 transition shrink-0"
                   title="Leave call"
                 >
-                  <Phone className="w-5 h-5" />
+                  <Phone className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 </button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* ── Live Attendance Panel (Always Visible Right Side - 30%) ── */}
-        <div className="hidden lg:flex flex-col w-96 bg-gradient-to-b from-blue-600/[0.05] to-gray-900/50 backdrop-blur-sm border-l border-gray-700/50 overflow-hidden relative shadow-lg">
-          {/* Header */}
-          <div className="px-4 py-3 border-b border-gray-700/50 bg-gray-900/80">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-white font-bold text-lg">Live Attendance</h2>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500/20 border border-green-500/30 rounded-full">
-                <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-                <span className="text-green-400 text-xs font-semibold">LIVE</span>
-              </div>
-            </div>
-            <p className="text-gray-400 text-xs">All Monitoring Active</p>
-          </div>
+        {/* ── Side Panel (desktop) ── */}
+        {activeSidePanel && (
+          <div className="hidden md:flex flex-col w-72 lg:w-80 bg-gray-800 border-l border-gray-700 overflow-hidden relative">
+            {/* Close button */}
+            <button
+              onClick={() => togglePanel(activeSidePanel)}
+              className="absolute top-2 right-2 z-10 p-1.5 hover:bg-gray-700 rounded-full transition"
+            >
+              <X className="w-4 h-4 text-gray-400" />
+            </button>
 
-          {/* Content Area */}
-          <div className="flex-1 overflow-y-auto flex flex-col">
-            {/* Attendance Stats Section */}
-            <div className="p-4 space-y-4">
-              {/* Stats Cards */}
-              <div className="grid grid-cols-3 gap-3">
-                {/* Total */}
-                <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-4 text-center hover:bg-gray-800/80 transition">
-                  <p className="text-gray-400 text-xs font-semibold mb-2 tracking-wide">TOTAL</p>
-                  <p className="text-white text-3xl font-black">{classData?.enrolled_students?.length || 0}</p>
-                </div>
-                {/* Present */}
-                <div className="bg-green-900/20 border border-green-700/40 rounded-xl p-4 text-center hover:bg-green-900/30 transition">
-                  <p className="text-green-400 text-xs font-semibold mb-2 tracking-wide">PRESENT</p>
-                  <p className="text-green-400 text-3xl font-black">{students.filter(s => s.isPresent !== false && s.status !== 'inactive').length}</p>
-                </div>
-                {/* Absent */}
-                <div className="bg-red-900/20 border border-red-700/40 rounded-xl p-4 text-center hover:bg-red-900/30 transition">
-                  <p className="text-red-400 text-xs font-semibold mb-2 tracking-wide">ABSENT</p>
-                  <p className="text-red-400 text-3xl font-black">{(classData?.enrolled_students?.length || 0) - students.filter(s => s.isPresent !== false && s.status !== 'inactive').length}</p>
-                </div>
-              </div>
-
-              {/* Face Detection Status Indicators */}
-              <div className="bg-gray-900/50 border border-gray-700/30 rounded-lg p-3.5 space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-2.5 h-2.5 bg-green-400 rounded-full flex-shrink-0" />
-                  <span className="text-gray-300 text-sm font-medium">Face detected</span>
-                  <span className="text-gray-500 text-xs ml-auto font-semibold">{students.filter(s => s.isPresent !== false && s.status !== 'inactive' && s.faceDetected).length} Students</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-2.5 h-2.5 bg-red-400 rounded-full flex-shrink-0" />
-                  <span className="text-gray-300 text-sm font-medium">Face not detected</span>
-                  <span className="text-gray-500 text-xs ml-auto font-semibold">{students.filter(s => !s.faceDetected).length} Students</span>
-                </div>
-              </div>
-
-              {/* No Students Message */}
-              {students.length === 0 && (
-                <div className="bg-gray-800/40 border border-gray-700/30 rounded-lg p-4 text-center space-y-2">
-                  <p className="text-gray-300 text-sm font-medium">No students connected yet.</p>
-                  <p className="text-gray-500 text-xs leading-relaxed">Engagement data and attention metrics will appear here once the first student joins the session.</p>
-                </div>
-              )}
-
-              {/* Export Report Button */}
-              <button
-                onClick={() => setShowAttendanceReport(true)}
-                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition shadow-lg text-sm flex items-center justify-center gap-2 active:scale-95"
-              >
-                <Monitor className="w-4 h-4" />
-                Export Report
-              </button>
-            </div>
-
-            {/* Engagement List Below Stats (Teacher only) */}
-            {user?.role === 'teacher' && students.length > 0 && (
-              <div className="border-t border-gray-700/50 flex-1 overflow-y-auto">
-                <EngagementList students={students} classId={classData?.class_id} sessionId={sessionId} />
-              </div>
+            {showChat && <ChatPanel messages={messages} onSendMessage={handleSendMessage} currentUser={user} />}
+            {showDoubts && user?.role === 'teacher' && (
+              <DoubtsPanel
+                doubts={doubts}
+                onResolve={(id) => setDoubts(prev => prev.map(d => d.id === id ? { ...d, status: 'resolved' } : d))}
+                onDismiss={(id) => setDoubts(prev => prev.filter(d => d.id !== id))}
+              />
             )}
-          </div>
-        </div>
-
-        {/* ── Side Panel (for Chat, Doubts, etc) ── */}
-        {activeSidePanel && ['chat', 'doubts', 'participants'].includes(activeSidePanel) && (
-          <div className="hidden md:flex flex-col w-80 bg-gray-800/95 backdrop-blur-sm border-l border-gray-700 overflow-hidden relative shadow-2xl">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-700 bg-gradient-to-r from-blue-600/10 to-cyan-600/10">
-              <h2 className="text-white font-bold text-lg">
-                {activeSidePanel === 'chat' && '💬 Chat'}
-                {activeSidePanel === 'doubts' && '❓ Questions'}
-                {activeSidePanel === 'participants' && '👥 Participants'}
-              </h2>
-              <button
-                onClick={() => togglePanel(activeSidePanel)}
-                className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Content Area */}
-            <div className="flex-1 overflow-y-auto flex flex-col">
-              {showChat && <ChatPanel messages={messages} onSendMessage={handleSendMessage} currentUser={user} />}
-              {showDoubts && user?.role === 'teacher' && (
-                <DoubtsPanel
-                  doubts={doubts}
-                  onResolve={(id) => setDoubts(prev => prev.map(d => d.id === id ? { ...d, status: 'resolved' } : d))}
-                  onDismiss={(id) => setDoubts(prev => prev.filter(d => d.id !== id))}
-                />
-              )}
-              {showParticipants && <ParticipantsPanel participants={participants} user={user} onMuteUser={handleMuteUser} onRemoveUser={handleRemoveUser} />}
-            </div>
+            {showEngagement && user?.role === 'teacher' && <EngagementList students={students} classId={classData?.class_id} sessionId={sessionId} />}
+            {showParticipants && <ParticipantsPanel participants={participants} user={user} onMuteUser={handleMuteUser} onRemoveUser={handleRemoveUser} />}
           </div>
         )}
 
@@ -2506,69 +2346,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
                   <X className="w-4 h-4 text-gray-400" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto flex flex-col">
-                {showAttendance && (
-                  <>
-                    {/* Attendance Stats Section */}
-                    <div className="p-4 space-y-3">
-                      {/* Stats Cards */}
-                      <div className="grid grid-cols-3 gap-2">
-                        {/* Total */}
-                        <div className="bg-gray-700/50 border border-gray-600 rounded-lg p-3 text-center">
-                          <p className="text-gray-400 text-xs font-medium mb-1">TOTAL</p>
-                          <p className="text-white text-2xl font-bold">{classData?.enrolled_students?.length || 0}</p>
-                        </div>
-                        {/* Present */}
-                        <div className="bg-green-900/20 border border-green-800/50 rounded-lg p-3 text-center">
-                          <p className="text-green-400 text-xs font-medium mb-1">PRESENT</p>
-                          <p className="text-green-400 text-2xl font-bold">{students.filter(s => s.isPresent !== false && s.status !== 'inactive').length}</p>
-                        </div>
-                        {/* Absent */}
-                        <div className="bg-red-900/20 border border-red-800/50 rounded-lg p-3 text-center">
-                          <p className="text-red-400 text-xs font-medium mb-1">ABSENT</p>
-                          <p className="text-red-400 text-2xl font-bold">{(classData?.enrolled_students?.length || 0) - students.filter(s => s.isPresent !== false && s.status !== 'inactive').length}</p>
-                        </div>
-                      </div>
-
-                      {/* Face Detection Status Indicators */}
-                      <div className="bg-gray-700/30 rounded-lg p-3 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2.5 h-2.5 bg-green-400 rounded-full" />
-                          <span className="text-gray-300 text-sm">Face detected</span>
-                          <span className="text-gray-500 text-xs ml-auto">{students.filter(s => s.isPresent !== false && s.status !== 'inactive' && s.faceDetected).length} Students</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="w-2.5 h-2.5 bg-red-400 rounded-full" />
-                          <span className="text-gray-300 text-sm">Face not detected</span>
-                          <span className="text-gray-500 text-xs ml-auto">{students.filter(s => !s.faceDetected).length} Students</span>
-                        </div>
-                      </div>
-
-                      {/* No Students Message */}
-                      {students.length === 0 && (
-                        <div className="bg-gray-700/20 rounded-lg p-3 text-center">
-                          <p className="text-gray-400 text-sm">No students connected yet.</p>
-                          <p className="text-gray-500 text-xs mt-1">Engagement data and attention metrics will appear here once the first student joins the session.</p>
-                        </div>
-                      )}
-
-                      {/* Export Report Button */}
-                      <button
-                        onClick={() => setShowAttendanceReport(true)}
-                        className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition shadow-md text-sm"
-                      >
-                        📊 Export Report
-                      </button>
-                    </div>
-
-                    {/* Engagement List Below Stats */}
-                    {user?.role === 'teacher' && students.length > 0 && (
-                      <div className="border-t border-gray-700 flex-1 overflow-y-auto">
-                        <EngagementList students={students} classId={classData?.class_id} sessionId={sessionId} />
-                      </div>
-                    )}
-                  </>
-                )}
+              <div className="flex-1 overflow-hidden">
                 {showChat && <ChatPanel messages={messages} onSendMessage={handleSendMessage} currentUser={user} />}
                 {showDoubts && user?.role === 'teacher' && (
                   <DoubtsPanel
@@ -2646,8 +2424,10 @@ function Classroom({ user }) {
   useEffect(() => {
     let active = true
     let pollCount = 0
+    let initialRetries = 0
+    const MAX_INITIAL_RETRIES = 3
 
-    const fetchClass = async () => {
+    const fetchClass = async (isInitial = false) => {
       try {
         const data = await classAPI.get(id)
         if (!active) return
@@ -2656,25 +2436,36 @@ function Classroom({ user }) {
         setIsLive(data.is_active)
         // Check if class has ended (was active but now finished)
         setIsFinished(data.is_finished === true || data.status === 'finished' || data.status === 'ended')
+        initialRetries = 0 // Reset retries on success
       } catch (err) {
         if (active) {
           console.error('[Classroom] Failed to load class:', err.message)
-          // On initial load failure, show error but don't exit
+
+          // Retry initial fetch up to MAX_INITIAL_RETRIES times
+          if (isInitial && initialRetries < MAX_INITIAL_RETRIES) {
+            initialRetries++
+            console.log(`[Classroom] Retrying initial fetch (attempt ${initialRetries}/${MAX_INITIAL_RETRIES})`)
+            // Wait 1 second before retry
+            await new Promise(r => setTimeout(r, 1000))
+            return fetchClass(true) // Recursive retry
+          }
+
+          // After retries exhausted, show error toast
           if (pollCount === 0) {
             setTimeout(() => {
               if (active) {
-                showError(`Connection issue. Auto-retrying...`)
+                showError(`Unable to load classroom. Please check your connection.`)
               }
             }, 500)
           }
         }
       } finally {
-        if (active) setLoading(false)
+        if (active && initialRetries === 0) setLoading(false)
       }
     }
 
     const startPolling = async () => {
-      await fetchClass() // Fetch immediately
+      await fetchClass(true) // Fetch initially with retry logic
 
       // Poll for status changes every 10 seconds while in classroom
       while (active) {
@@ -2733,7 +2524,7 @@ function Classroom({ user }) {
           onClose={() => setToast(null)}
         />
       )}
-      <div className="min-h-screen">
+      <div>
         {loading ? (
           <div className="h-[100dvh] bg-gray-900 flex items-center justify-center">
             <div className="text-center">
@@ -2742,12 +2533,7 @@ function Classroom({ user }) {
             </div>
           </div>
         ) : !classData ? (
-          <div className="h-[100dvh] bg-gray-950 flex items-center justify-center">
-            <div className="text-center">
-              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-              <p className="text-gray-400 text-sm">Classroom not found. Redirecting...</p>
-            </div>
-          </div>
+          <ClassNotFoundScreen onLeave={handleLeave} />
         ) : isFinished ? (
           <ClassFinishedScreen classData={classData} onLeave={handleLeave} />
         ) : user.role === 'teacher' ? (
