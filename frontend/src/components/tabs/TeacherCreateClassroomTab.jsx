@@ -54,10 +54,10 @@ function TeacherCreateClassroomTab({ onCreateClass, onBack }) {
       {/* Header */}
       <div className="max-w-3xl mx-auto mb-8">
         <div className="flex items-center justify-between mb-6">
-          <button onClick={onBack} className="text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 text-sm">
+          <button type="button" onClick={onBack} className="text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 text-sm">
             ← Back
           </button>
-          <button onClick={onBack} className="text-gray-400 hover:text-gray-600 text-xl">
+          <button type="button" onClick={onBack} className="text-gray-400 hover:text-gray-600 text-xl">
             ✕
           </button>
         </div>

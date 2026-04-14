@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Mic, MicOff, Video, VideoOff, MessageSquare, Phone,
@@ -8,12 +8,17 @@ import {
 import { classAPI, attendanceAPI, createWebSocket, webcamUtils, healthAPI } from '../services/api'
 import { createWebRTCManager } from '../services/webrtc'
 import { createFaceTracker, generateAttendanceMetadata, loadFaceDetectionModels } from '../services/faceDetection'
+import { useActiveSpeaker } from '../hooks/useActiveSpeaker'
 import EngagementList from '../components/EngagementList'
 import ChatPanel from '../components/ChatPanel'
 import DoubtsPanel from '../components/DoubtsPanel'
-// import ConsentModal from '../components/ConsentModal'
 import AttendanceReportModal from '../components/AttendanceReportModal'
 import { useEngagementDetection } from '../hooks/useEngagementDetection'
+import VideoTile from '../components/VideoTile'
+import VideoGrid from '../components/VideoGrid'
+import RemoteAudioPlayer from '../components/RemoteAudioPlayer'
+import ControlBar from '../components/ControlBar'
+import TopBar from '../components/TopBar'
 
 // ─── Permission Dialog (Google Meet Style) ─────────────────────────────────
 function PermissionDialog({ onAllow, onDeny }) {
@@ -164,10 +169,10 @@ function PreJoinScreen({ classData, user, onJoin, onLeave }) {
         </div>
         {/* Simple Join/Cancel Buttons */}
         <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md">
-          <button onClick={handleJoin} disabled={loading} className="flex-1 px-6 py-3 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-semibold disabled:opacity-50">
+          <button type="button" onClick={handleJoin} disabled={loading} className="flex-1 px-6 py-3 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-semibold disabled:opacity-50">
             {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : user?.role === 'teacher' ? 'Start Meeting' : 'Join Now'}
           </button>
-          <button onClick={onLeave} className="px-6 py-3 bg-gray-700 text-gray-300 rounded-full hover:bg-gray-600 transition font-medium">
+          <button type="button" onClick={onLeave} className="px-6 py-3 bg-gray-700 text-gray-300 rounded-full hover:bg-gray-600 transition font-medium">
             Cancel
           </button>
         </div>
@@ -237,7 +242,7 @@ function WaitingRoom({ classData, onClassStarted, onLeave }) {
           <p className="text-gray-400 text-xs sm:text-sm">You&apos;ll be connected automatically once the session begins.</p>
         </div>
 
-        <button onClick={onLeave} className="px-5 py-2.5 sm:px-6 sm:py-3 bg-gray-700 text-gray-300 rounded-xl hover:bg-gray-600 transition font-medium text-sm">
+        <button type="button" onClick={onLeave} className="px-5 py-2.5 sm:px-6 sm:py-3 bg-gray-700 text-gray-300 rounded-xl hover:bg-gray-600 transition font-medium text-sm">
           Leave
         </button>
       </div>
@@ -303,7 +308,7 @@ function WaitingForApprovalScreen({ classData, onLeave, connectionState }) {
           )}
         </div>
 
-        <button onClick={onLeave} className="px-5 py-2.5 sm:px-6 sm:py-3 bg-gray-700 text-gray-300 rounded-xl hover:bg-gray-600 transition font-medium text-sm">
+        <button type="button" onClick={onLeave} className="px-5 py-2.5 sm:px-6 sm:py-3 bg-gray-700 text-gray-300 rounded-xl hover:bg-gray-600 transition font-medium text-sm">
           Leave
         </button>
       </div>
@@ -325,7 +330,7 @@ function JoinRejectedScreen({ classData, onLeave }) {
           The host has denied your request to join this meeting.
         </p>
 
-        <button onClick={onLeave} className="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition font-medium">
+        <button type="button" onClick={onLeave} className="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition font-medium">
           Return to Dashboard
         </button>
       </div>
@@ -516,7 +521,7 @@ function TeacherLeftBanner({ onLeave }) {
         </div>
         <h2 className="text-white text-xl font-semibold mb-2">The teacher has left</h2>
         <p className="text-gray-400 text-sm mb-6">The host ended the meeting. You will be redirected to the dashboard.</p>
-        <button onClick={onLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
+        <button type="button" onClick={onLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
           Return to Dashboard
         </button>
       </div>
@@ -534,7 +539,7 @@ function RemovedBanner({ onLeave }) {
         </div>
         <h2 className="text-white text-xl font-semibold mb-2">You&apos;ve been removed</h2>
         <p className="text-gray-400 text-sm mb-6">The host has removed you from this meeting.</p>
-        <button onClick={onLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
+        <button type="button" onClick={onLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
           Return to Dashboard
         </button>
       </div>
@@ -564,398 +569,8 @@ function ClassNotFoundScreen({ onLeave }) {
   )
 }
 
-// ─── Video Tile (Reusable) ───────────────────────────────────────────────────
-function VideoTile({ stream, name, role, isLocal, videoOn, size = 'normal', micOn, mirror = isLocal, fit = 'cover', isScreenShare = false }) {
-  const videoRef = useRef(null)
-  const showVideo = stream && videoOn === true
-
-  useEffect(() => {
-    const el = videoRef.current
-    if (!el) return
-    if (stream) {
-      if (el.srcObject !== stream) {
-        el.srcObject = stream
-        // Log audio track state for debugging
-        const audioTracks = stream.getAudioTracks()
-        console.log(`[VideoTile] ${isLocal ? 'LOCAL' : 'REMOTE'} (${name}) stream attached — audio tracks:`, audioTracks.length, audioTracks.map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState })))
-        console.log(`[VideoTile] <video> element muted=${isLocal} for ${name}`)
-        el.play().catch(err => console.warn(`[VideoTile] play() failed for ${name}:`, err))
-      }
-    } else {
-      if (el.srcObject) {
-        el.srcObject = null
-      }
-    }
-  }, [stream, isLocal, name])
-
-  const initials = name?.split(' ').map(n => n[0]).join('').toUpperCase() || '?'
-  const isSmall = size === 'small'
-  const avatarSize = isSmall ? 'w-10 h-10 sm:w-12 sm:h-12' : 'w-16 h-16 sm:w-24 sm:h-24'
-  const textSize = isSmall ? 'text-sm' : 'text-2xl sm:text-4xl'
-  const badgeText = isSmall ? 'text-[10px]' : 'text-xs'
-
-  return (
-    <div className="relative w-full h-full bg-gray-900 rounded-xl overflow-hidden group transition-all duration-300">
-      {/* Video element — muted ONLY for local preview (isLocal), unmuted for remote so audio plays */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted={isLocal}
-        className={`absolute inset-0 w-full h-full transition-opacity duration-300 ${fit === 'contain' ? 'screen-share-video object-contain bg-black' : 'object-cover'} ${showVideo ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        style={mirror ? { transform: 'scaleX(-1)' } : undefined}
-      />
-      {/* Avatar fallback when camera is off */}
-      {!showVideo && (
-        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-800 via-gray-900 to-gray-800">
-          <div className={`${avatarSize} ${role === 'teacher' ? 'bg-gradient-to-br from-purple-500 to-purple-700' : 'bg-gradient-to-br from-blue-500 to-blue-700'} rounded-full flex items-center justify-center shadow-xl`}>
-            <span className={`text-white ${textSize} font-bold`}>{initials}</span>
-          </div>
-        </div>
-      )}
-      {/* Name badge */}
-      <div className={`absolute bottom-1.5 left-1.5 sm:bottom-2 sm:left-2 flex items-center gap-1 ${isScreenShare ? 'z-20' : ''}`}>
-        <div className={`px-1.5 py-0.5 sm:px-2 sm:py-1 bg-black/60 backdrop-blur-sm rounded-md text-white ${badgeText} font-medium max-w-[100px] sm:max-w-[140px] truncate flex items-center gap-1`}>
-          {isLocal ? 'You' : name || 'Participant'}
-          {role === 'teacher' && !isSmall && ' (Host)'}
-          {micOn === false && <MicOff className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-400 flex-shrink-0" />}
-        </div>
-      </div>
-      {/* Pin indicator for teacher */}
-      {role === 'teacher' && !isSmall && !isScreenShare && (
-        <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/80 backdrop-blur-sm rounded-md text-white text-[10px] font-semibold uppercase tracking-wider">
-          Host
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Remote Audio Player ─────────────────────────────────────────────────────
-// Dedicated <audio> elements for each remote peer — guarantees audio playback
-// Elements MUST be appended to the DOM for autoplay to work in all browsers.
-function RemoteAudioPlayer({ remoteStreams }) {
-  const audioRefs = useRef({})
-  const containerRef = useRef(null)
-
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    Object.entries(remoteStreams).forEach(([socketId, { stream }]) => {
-      if (!stream) return
-      const audioTracks = stream.getAudioTracks()
-      console.log(`[RemoteAudioPlayer] Peer ${socketId} — audio tracks:`, audioTracks.length, audioTracks.map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState })))
-      if (audioTracks.length === 0) return
-
-      let audio = audioRefs.current[socketId]
-      if (!audio) {
-        audio = document.createElement('audio')
-        audio.autoplay = true
-        audio.playsInline = true
-        // Append to DOM — required for autoplay in some browsers
-        container.appendChild(audio)
-        audioRefs.current[socketId] = audio
-        console.log(`[RemoteAudioPlayer] Created <audio> element for peer ${socketId}`)
-      }
-      if (audio.srcObject !== stream) {
-        audio.srcObject = stream
-        audio.play().then(() => {
-          console.log(`[RemoteAudioPlayer] Audio playing for peer ${socketId}`)
-        }).catch(err => {
-          console.warn(`[RemoteAudioPlayer] play() failed for peer ${socketId}:`, err)
-        })
-      }
-    })
-
-    // Cleanup removed peers
-    Object.keys(audioRefs.current).forEach(socketId => {
-      if (!remoteStreams[socketId]) {
-        const audio = audioRefs.current[socketId]
-        if (audio) {
-          audio.srcObject = null
-          audio.remove()
-          console.log(`[RemoteAudioPlayer] Removed <audio> element for peer ${socketId}`)
-        }
-        delete audioRefs.current[socketId]
-      }
-    })
-  }, [remoteStreams])
-
-  useEffect(() => {
-    return () => {
-      Object.values(audioRefs.current).forEach(a => { if (a) { a.srcObject = null; a.remove() } })
-      audioRefs.current = {}
-    }
-  }, [])
-
-  // Hidden container div so audio elements are in the DOM
-  return <div ref={containerRef} style={{ display: 'none' }} />
-}
-
-// ─── Google Meet Video Grid ─────────────────────────────────────────────────
-// LAYOUT RULES:
-// 1. MULTI-USER GRID  (3+ cameras ON) → responsive grid (2x2, 3x2, 3x3…)
-// 2. TWO-USER SPLIT   (teacher + 1 student cameras ON) → 50/50 split
-// 3. TEACHER PRIORITY  (teacher camera ON, students mixed) → main + bottom row
-// 4. SCREEN SHARE      (teacher sharing screen) → main screen + thumbnail row
-// 5. CAMERA OFF        → tile removed from visible grid, audio still plays
-// 6. MOBILE            → teacher fullscreen + horizontal scroll thumbnails
-function VideoGrid({ localStream, localVideoOn, localMicOn, remoteStreams, remoteCameraStatus, user, canvasRef, isScreenSharing, screenShareStream }) {
-  // ─── Build sorted participant list (teacher first) ───
-  const buildParticipants = () => {
-    const isTeacher = user?.role === 'teacher'
-    const all = []
-
-    // Local user
-    all.push({
-      key: 'local',
-      stream: localStream,
-      name: user?.name,
-      role: user?.role,
-      isLocal: true,
-      videoOn: localVideoOn,
-      micOn: localMicOn,
-      isTeacher,
-    })
-
-    // Remote participants
-    Object.entries(remoteStreams).forEach(([socketId, { stream, userInfo }]) => {
-      const remoteRole = userInfo?.role || 'student'
-      const remoteCamOn = remoteCameraStatus[socketId] !== false
-      all.push({
-        key: socketId,
-        stream,
-        name: userInfo?.userName,
-        role: remoteRole,
-        isLocal: false,
-        videoOn: remoteCamOn,
-        isTeacher: remoteRole === 'teacher',
-      })
-    })
-
-    // Sort: teacher always first
-    all.sort((a, b) => (a.role === 'teacher' ? -1 : b.role === 'teacher' ? 1 : 0))
-    return all
-  }
-
-  const participants = buildParticipants()
-  const teacher = participants.find(p => p.role === 'teacher')
-  const students = participants.filter(p => p.role !== 'teacher')
-  const cameraOnParticipants = participants.filter(p => p.videoOn)
-  const cameraOnCount = cameraOnParticipants.length
-  const studentCameraOnCount = students.filter(p => p.videoOn).length
-
-  // ─── Determine layout mode (Google Meet style - speaker focus) ───
-  // Speaker gets 70% of screen, others get 30% in grid
-  const getLayoutMode = () => {
-    if (isScreenSharing) return 'screen-share'
-    if (teacher && studentCameraOnCount === 0) return 'teacher-full'
-    if (cameraOnCount >= 1) return 'speaker-focus'  // All modes use speaker focus except screen share
-    return 'empty'
-  }
-
-  const layoutMode = getLayoutMode()
-
-  // ─── Grid column calculation for multi-user layout ───
-  const getGridStyle = (count) => {
-    if (count <= 1) return { gridTemplateColumns: 'repeat(1, 1fr)' }
-    if (count === 2) return { gridTemplateColumns: 'repeat(2, 1fr)' }
-    if (count <= 4) return { gridTemplateColumns: 'repeat(2, 1fr)' }
-    if (count <= 6) return { gridTemplateColumns: 'repeat(3, 1fr)' }
-    return { gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' }
-  }
-
-  // ─── Students with camera ON (for bottom thumbnails) ───
-  const studentsWithCamera = students.filter(s => s.videoOn)
-  const presentingStream = teacher?.isLocal && screenShareStream ? screenShareStream : teacher?.stream
-
-  return (
-    <div className="w-full h-full flex flex-col relative overflow-hidden">
-      {/* Audio player — always renders for all remote streams */}
-      <RemoteAudioPlayer remoteStreams={remoteStreams} />
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* LAYOUT: SCREEN SHARE MODE                                        */}
-      {/* Teacher screen as main, all participants as thumbnails at bottom  */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {layoutMode === 'screen-share' && (
-        <>
-          {/* Main screen share area */}
-          <div className="flex-1 min-h-0 p-0 sm:p-2">
-            {teacher && (
-              <div className="screen-share-container w-full h-full sm:rounded-xl overflow-hidden relative bg-black">
-                <video
-                  autoPlay
-                  playsInline
-                  muted={teacher?.isLocal}
-                  ref={(el) => {
-                    if (el && screenShareStream && el.srcObject !== screenShareStream) {
-                      el.srcObject = screenShareStream
-                    }
-                  }}
-                  className="screen-share-video w-full h-full object-contain"
-                />
-                {teacher?.isLocal && <canvas ref={canvasRef} className="hidden" />}
-              </div>
-            )}
-          </div>
-
-          {/* Participant thumbnails - bottom row */}
-          {cameraOnParticipants.length > 0 && (
-            <div className="absolute bottom-24 sm:bottom-28 left-0 right-0 px-2 sm:px-4 py-2 flex gap-2 overflow-x-auto justify-center" style={{ scrollbarWidth: 'none' }}>
-              {cameraOnParticipants.map(p => (
-                <div key={p.key} className="flex-shrink-0 w-32 h-20 sm:w-40 sm:h-24 rounded-lg overflow-hidden border border-white/10 shadow-lg bg-black/30 backdrop-blur-sm">
-                  <VideoTile stream={p.stream} name={p.name} role={p.role} isLocal={p.isLocal} videoOn={p.videoOn} micOn={p.micOn} size="small" />
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* LAYOUT: TEACHER FULL STAGE                                       */}
-      {/* Teacher fills the stage when students have cameras off           */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {layoutMode === 'teacher-full' && (
-        <div className="w-full h-full p-1.5 sm:p-2">
-          {teacher && (
-            <div className="relative w-full h-full rounded-xl overflow-hidden bg-black shadow-2xl">
-              <VideoTile
-                stream={teacher.stream}
-                name={teacher.name}
-                role="teacher"
-                isLocal={teacher.isLocal}
-                videoOn={teacher.videoOn}
-                micOn={teacher.micOn}
-                size="normal"
-              />
-              {teacher?.isLocal && <canvas ref={canvasRef} className="hidden" />}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-black/10 pointer-events-none" />
-            </div>
-          )}
-          {!teacher && (
-            <div className="w-full h-full rounded-xl bg-gray-950 flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-purple-500 to-purple-700 rounded-full flex items-center justify-center mx-auto mb-3 shadow-xl">
-                  <span className="text-white text-3xl font-bold">T</span>
-                </div>
-                <p className="text-gray-400 text-sm">Waiting for teacher...</p>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* LAYOUT: SPEAKER FOCUS (Google Meet style)                         */}
-      {/* Speaker (70%) + other participants in grid/thumbnails (30%)        */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {layoutMode === 'speaker-focus' && (
-        <div className="w-full h-full flex flex-col sm:flex-row gap-2 p-1.5 sm:p-2 relative overflow-hidden">
-          {/* Main speaker area (70% on desktop, full on mobile) */}
-          <div className="flex-1 min-h-0 flex flex-col sm:flex-none sm:basis-[70%]">
-            {teacher && (
-              <div className="w-full h-full rounded-xl overflow-hidden">
-                {/* Speaker glow effect indicator */}
-                <div className="relative w-full h-full rounded-xl overflow-hidden">
-                  <VideoTile
-                    stream={teacher.stream}
-                    name={teacher.name}
-                    role="teacher"
-                    isLocal={teacher.isLocal}
-                    videoOn={teacher.videoOn}
-                    micOn={teacher.micOn}
-                    size="normal"
-                  />
-                  {teacher?.isLocal && <canvas ref={canvasRef} className="hidden" />}
-                  {/* Speaker border highlight */}
-                  <div className="absolute inset-0 rounded-xl ring-2 ring-primary-500/30 pointer-events-none" />
-                </div>
-              </div>
-            )}
-            {!teacher && (
-              <div className="w-full h-full bg-gray-950 rounded-xl flex items-center justify-center">
-                <div className="text-center">
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-purple-500 to-purple-700 rounded-full flex items-center justify-center mx-auto mb-3 shadow-xl">
-                    <span className="text-white text-3xl font-bold">T</span>
-                  </div>
-                  <p className="text-gray-400 text-sm">Waiting for teacher...</p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Participant thumbnails area (30% on desktop, bottom row on mobile) */}
-          {cameraOnCount > 1 && (
-            <div className="flex sm:flex-col gap-1.5 sm:gap-2 min-h-0 sm:basis-[30%] overflow-x-auto sm:overflow-y-auto pb-24 sm:pb-0">
-              {cameraOnParticipants.filter(p => !p.isTeacher).map(p => (
-                <div
-                  key={p.key}
-                  className="flex-shrink-0 h-20 sm:h-auto sm:flex-1 w-28 sm:w-full aspect-video sm:aspect-auto rounded-lg overflow-hidden border border-white/10 hover:border-white/30 transition-all cursor-pointer hover:shadow-lg"
-                  title={`Click to focus ${p.name}`}
-                >
-                  <VideoTile
-                    stream={p.stream}
-                    name={p.name}
-                    role={p.role}
-                    isLocal={p.isLocal}
-                    videoOn={p.videoOn}
-                    micOn={p.micOn}
-                    size="small"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Student self-view thumbnail in speaker-focus (if student and only viewing teacher) */}
-          {user?.role === 'student' && cameraOnCount === 1 && (
-            <div className="absolute bottom-24 sm:bottom-28 right-2 sm:right-3 z-10 w-32 h-20 sm:w-40 sm:h-24 rounded-xl overflow-hidden shadow-2xl border border-white/10 hover:border-white/20 transition-all duration-200">
-              <VideoTile
-                stream={localStream}
-                name={user?.name}
-                role={user?.role}
-                isLocal={true}
-                videoOn={localVideoOn}
-                micOn={localMicOn}
-                size="small"
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Self-view PIP (students only when alone) ── */}
-      {user?.role === 'student' && cameraOnCount === 1 && layoutMode !== 'speaker-focus' && (
-        <>
-          <div className="absolute bottom-24 sm:bottom-28 right-2 sm:right-3 z-10 w-32 h-20 sm:w-40 sm:h-24 rounded-xl overflow-hidden shadow-2xl border border-white/10 hover:border-white/20 transition-all duration-200 cursor-pointer">
-            <VideoTile
-              stream={localStream}
-              name={user?.name}
-              role={user?.role}
-              isLocal={true}
-              videoOn={localVideoOn}
-              micOn={localMicOn}
-              size="small"
-            />
-          </div>
-          <canvas ref={canvasRef} className="hidden" />
-        </>
-      )}
-
-      {/* Empty room state */}
-      {Object.keys(remoteStreams).length === 0 && (
-        <div className="absolute bottom-28 sm:bottom-32 left-1/2 transform -translate-x-1/2 z-10">
-          <div className="px-4 py-2 bg-gray-800/90 backdrop-blur-sm rounded-full text-gray-400 text-sm border border-gray-700/50">
-            {user?.role === 'teacher' ? 'Waiting for students to join...' : 'Connecting to classroom...'}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+// ─── Video Tile (Reusable) ──────────────────────────────────────────────────
+// Extracted to /src/components/VideoTile.jsx
 
 // ─── Participants Panel ──────────────────────────────────────────────────────
 function ParticipantsPanel({ participants, user, onMuteUser, onRemoveUser }) {
@@ -1059,6 +674,8 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   const [showEngagement, setShowEngagement] = useState(false)
   const [showDoubts, setShowDoubts] = useState(false)
   const [showParticipants, setShowParticipants] = useState(false)
+  const [controlsVisible, setControlsVisible] = useState(true)
+  const controlHideTimeoutRef = useRef(null)
   const [messages, setMessages] = useState([])
   const [unreadMessages, setUnreadMessages] = useState(0)
   const [doubts, setDoubts] = useState([])
@@ -1125,6 +742,29 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       setSessionId(activeSessionId)
     }
   }, [classData?.active_session_id, initialSessionId, sessionId])
+
+  // ── Auto-hide controls on idle (3 seconds) ──────────────────────────────────
+  useEffect(() => {
+    if (!classroomRef.current) return
+
+    const handleMouseMove = () => {
+      setControlsVisible(true)
+      if (controlHideTimeoutRef.current) clearTimeout(controlHideTimeoutRef.current)
+
+      // Hide controls after 3 seconds of inactivity
+      controlHideTimeoutRef.current = setTimeout(() => {
+        setControlsVisible(false)
+      }, 3000)
+    }
+
+    const container = classroomRef.current
+    container.addEventListener('mousemove', handleMouseMove)
+
+    return () => {
+      container.removeEventListener('mousemove', handleMouseMove)
+      if (controlHideTimeoutRef.current) clearTimeout(controlHideTimeoutRef.current)
+    }
+  }, [])
 
   // ── Real-time engagement detection hook (students only) ──────────────────
   // Runs face detection every 5 seconds when the student is approved.
@@ -2099,51 +1739,17 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           )}
 
           {/* ── Top Bar Overlay (Google Meet style – transparent gradient) ── */}
-          <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/75 via-black/20 to-transparent px-3 sm:px-5 pt-3 sm:pt-4 pb-14 pointer-events-none">
-            <div className="flex items-center justify-between pointer-events-auto">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="min-w-0">
-                  <h1 className="text-white text-sm sm:text-base font-semibold truncate drop-shadow-lg">{classData?.title || 'Classroom'}</h1>
-                  <p className="text-gray-300/80 text-[11px] sm:text-xs truncate">{classData?.teacher_name}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-                <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg">
-                  <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-400 rounded-full animate-pulse" />
-                  <span className="text-white text-xs sm:text-sm font-medium">Live</span>
-                </div>
-
-                {/* Class timer - Teacher sees remaining time, Students see elapsed time */}
-                {user?.role === 'teacher' && classRemainingTime !== null && (
-                  <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg">
-                    <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" />
-                    <span className="text-white text-xs sm:text-sm font-medium">
-                      {Math.floor(classRemainingTime / 60)}:{(classRemainingTime % 60).toString().padStart(2, '0')} left
-                    </span>
-                  </div>
-                )}
-                {user?.role === 'student' && classElapsedTime > 0 && (
-                  <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg">
-                    <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" />
-                    <span className="text-white text-xs sm:text-sm font-medium">
-                      {Math.floor(classElapsedTime / 60)} min
-                    </span>
-                  </div>
-                )}
-                <button
-                  onClick={() => togglePanel('participants')}
-                  className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg backdrop-blur-sm transition ${showParticipants ? 'bg-primary-600/90' : 'bg-black/40 hover:bg-black/60 border border-white/10'}`}
-                >
-                  <Users className="w-3.5 h-3.5 text-white" />
-                  <span className="text-white text-xs font-medium">{participants.count || 1}</span>
-                </button>
-                <button onClick={handleLeaveClass} className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-red-600/90 backdrop-blur-sm text-white rounded-lg hover:bg-red-600 transition flex items-center gap-1.5 text-xs sm:text-sm">
-                  <Phone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  <span className="hidden sm:inline font-medium">Leave</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          <TopBar
+            classData={classData}
+            user={user}
+            classRemainingTime={classRemainingTime}
+            classElapsedTime={classElapsedTime}
+            showParticipants={showParticipants}
+            participantCount={participants.count || 1}
+            onToggleParticipants={() => togglePanel('participants')}
+            onLeaveClass={handleLeaveClass}
+            isVisible={controlsVisible}
+          />
 
           {/* Attendance Tracking Active Indicator - shown when camera is off but tracking continues */}
           {user?.role === 'student' && faceTrackingActive && !videoOn && (
@@ -2193,122 +1799,25 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           </div>
 
           {/* ── Bottom Controls (Google Meet style – gradient overlay) ── */}
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-2 sm:px-6 py-3 sm:py-7 safe-bottom overflow-hidden">
-            <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-2 sm:justify-between">
-              {/* Left side buttons */}
-              <div className="flex items-center gap-2 order-2 sm:order-1 shrink-0">
-                {user?.role === 'teacher' && (
-                  <button
-                    onClick={() => togglePanel('engagement')}
-                    className={`p-2.5 sm:p-3 rounded-full transition ${showEngagement ? 'bg-primary-600' : 'bg-gray-700 hover:bg-gray-600'}`}
-                    title="Engagement"
-                  >
-                    <Users className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                  </button>
-                )}
-              </div>
-
-              {/* Center controls */}
-              <div className="order-1 sm:order-2 flex flex-wrap items-center justify-center gap-2 sm:gap-3 w-full sm:w-auto">
-                {/* Mic */}
-                <button
-                  onClick={() => setMicOn(v => !v)}
-                  className={`p-3 sm:p-4 rounded-full transition shrink-0 ${micOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
-                  title={micOn ? 'Turn off microphone' : 'Turn on microphone'}
-                >
-                  {micOn ? <Mic className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <MicOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
-                </button>
-
-                {/* Video — both teacher and student can toggle camera visibility.
-                    For students, the physical camera stays on (for face detection)
-                    but video is hidden from other participants. */}
-                <button
-                  onClick={() => setVideoOn(v => !v)}
-                  className={`p-3 sm:p-4 rounded-full transition shrink-0 ${videoOn ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
-                  title={videoOn ? 'Turn off camera' : 'Turn on camera'}
-                >
-                  {videoOn ? <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <VideoOff className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
-                </button>
-
-                {/* Screen share - Teacher only (shown on both mobile and desktop) */}
-                {user?.role === 'teacher' && (
-                  <button
-                    onClick={handleScreenShare}
-                    className={`p-3 sm:p-4 rounded-full transition relative shrink-0 ${
-                      isScreenSharing
-                        ? 'bg-primary-600 hover:bg-primary-700'
-                        : screenShareSupported
-                          ? 'bg-gray-700 hover:bg-gray-600'
-                          : 'bg-gray-700/50 cursor-not-allowed'
-                    }`}
-                    title={
-                      !screenShareSupported
-                        ? 'Screen sharing not supported on this device'
-                        : isScreenSharing
-                          ? 'Stop presenting'
-                          : 'Present now'
-                    }
-                  >
-                    <MonitorUp className={`w-5 h-5 sm:w-6 sm:h-6 ${screenShareSupported ? 'text-white' : 'text-white/50'}`} />
-                    {!screenShareSupported && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full text-[8px] flex items-center justify-center text-gray-900 font-bold">!</span>
-                    )}
-                  </button>
-                )}
-
-                {/* Chat */}
-                <button
-                  onClick={() => togglePanel('chat')}
-                  className={`p-3 sm:p-4 rounded-full transition relative shrink-0 ${showChat ? 'bg-primary-600 hover:bg-primary-700' : 'bg-gray-700 hover:bg-gray-600'}`}
-                  title="Chat"
-                >
-                  <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  {unreadMessages > 0 && !showChat && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-[10px] flex items-center justify-center font-bold">
-                      {unreadMessages > 9 ? '9+' : unreadMessages}
-                    </span>
-                  )}
-                </button>
-
-                {/* Doubt (student) / Doubts queue (teacher) */}
-                {user?.role === 'student' && (
-                  <button
-                    onClick={handleRaiseDoubt}
-                    className="px-3 sm:px-4 py-2.5 sm:py-3 rounded-full bg-orange-600 hover:bg-orange-700 transition flex items-center gap-1.5 shrink-0"
-                    title="Raise a doubt"
-                  >
-                    <Hand className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                    <span className="text-white font-semibold text-xs hidden sm:inline">Raise Hand</span>
-                  </button>
-                )}
-                {user?.role === 'teacher' && (
-                  <button
-                    onClick={() => togglePanel('doubts')}
-                    className={`p-3 sm:p-4 rounded-full transition relative shrink-0 ${showDoubts ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-700 hover:bg-gray-600'}`}
-                    title="Student doubts"
-                  >
-                    <HelpCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                    {doubts.filter(d => d.status === 'pending').length > 0 && (
-                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-[10px] flex items-center justify-center font-bold">
-                        {doubts.filter(d => d.status === 'pending').length}
-                      </span>
-                    )}
-                  </button>
-                )}
-              </div>
-
-              {/* Right side */}
-              <div className="order-3 flex items-center gap-2 shrink-0">
-                <button
-                  onClick={handleLeaveClass}
-                  className="p-2.5 sm:p-3 rounded-full bg-red-600 hover:bg-red-700 transition shrink-0"
-                  title="Leave call"
-                >
-                  <Phone className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                </button>
-              </div>
-            </div>
-          </div>
+          <ControlBar
+            micOn={micOn}
+            videoOn={videoOn}
+            isScreenSharing={isScreenSharing}
+            screenShareSupported={screenShareSupported}
+            showChat={showChat}
+            showEngagement={showEngagement}
+            showDoubts={showDoubts}
+            unreadMessages={unreadMessages}
+            doubts={doubts}
+            user={user}
+            onMicToggle={() => setMicOn(v => !v)}
+            onVideoToggle={() => setVideoOn(v => !v)}
+            onScreenShare={handleScreenShare}
+            onTogglePanel={togglePanel}
+            onLeaveClass={handleLeaveClass}
+            onRaiseDoubt={handleRaiseDoubt}
+            isVisible={controlsVisible}
+          />
         </div>
 
         {/* ── Side Panel (desktop) ── */}
@@ -2500,7 +2009,7 @@ function Classroom({ user }) {
   const handleLeave = useCallback((navigationState = null) => {
     navigate(
       user.role === 'student' ? '/student-dashboard' : '/teacher-dashboard',
-      navigationState ? { state: navigationState } : undefined
+      navigationState ? { replace: true, state: navigationState } : { replace: true }
     )
   }, [navigate, user.role])
 

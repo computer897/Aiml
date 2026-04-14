@@ -73,7 +73,7 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
               Class ended at {endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} on {endDate.toLocaleDateString()}
             </p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-700 rounded-full transition">
+          <button type="button" onClick={onClose} className="p-2 hover:bg-gray-700 rounded-full transition">
             <X className="w-4 h-4 text-gray-400" />
           </button>
         </div>
@@ -167,6 +167,7 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
         {/* ── Footer Actions ── */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-700 flex-shrink-0 bg-gray-800/50">
           <button
+            type="button"
             onClick={onClose}
             className="px-5 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-xl text-sm font-medium transition"
           >

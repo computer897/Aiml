@@ -254,8 +254,10 @@ function TeacherDashboard({ user, onLogout, onUserUpdate }) {
       })
     }
 
-    openReport()
-  }, [classes, location.state])
+    openReport().finally(() => {
+      navigate(location.pathname, { replace: true, state: null })
+    })
+  }, [classes, location.pathname, location.state, navigate])
 
   useEffect(() => {
     const classId = activeClass?.class_id
