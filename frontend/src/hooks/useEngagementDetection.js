@@ -50,6 +50,7 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
     if (!webrtcRef.current) return
 
     let status = 'not-detected'
+    let faceDetectedThisRound = false
 
     const videoElement = videoRef.current
     const videoReady = !!(
@@ -64,22 +65,23 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
     if (modelsLoadedRef.current && videoReady) {
       // Primary path: face-api.js detection
       const result = await detectFaces(videoElement)
-      const detected = result.faceDetected
-      setFaceDetected(detected)
+      faceDetectedThisRound = result.faceDetected
+      setFaceDetected(faceDetectedThisRound)
 
       if (result.multipleFaces) {
         status = 'distracted'
-      } else if (detected) {
+      } else if (faceDetectedThisRound) {
         status = 'attentive'
       }
     } else {
       if (videoElement && Date.now() - lastVideoWarningRef.current > 8000) {
         console.log('[useEngagementDetection] Video not ready for face detection:', {
-          readyState: videoElement.readyState,
-          width: videoElement.videoWidth,
-          height: videoElement.videoHeight,
-          paused: videoElement.paused,
-          ended: videoElement.ended,
+          readyState: videoElement?.readyState,
+          width: videoElement?.videoWidth,
+          height: videoElement?.videoHeight,
+          paused: videoElement?.paused,
+          ended: videoElement?.ended,
+          modelsLoaded: modelsLoadedRef.current,
         })
         lastVideoWarningRef.current = Date.now()
       }
@@ -90,14 +92,31 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
     }
 
     setEngagementStatus(status)
+
+    // KEY LOGIC: isPresent is TRUE only if face was detected (status !== 'not-detected')
+    // This means:
+    // - 'attentive' → isPresent = true
+    // - 'distracted' → isPresent = true
+    // - 'not-detected' → isPresent = false
     const isPresent = status !== 'not-detected'
 
     // Only emit socket update if status changed (reduce API load)
     if (status !== lastStatusRef.current) {
       lastStatusRef.current = status
+
+      console.debug('[useEngagementDetection] Status changed:', {
+        studentId: userId,
+        oldStatus: lastStatusRef.current,
+        newStatus: status,
+        faceDetected: faceDetectedThisRound,
+        isPresent: isPresent,
+      })
+
       // Emit to signaling server → forwarded to teacher as 'engagement-update'
-      // cameraOn is always true for students since the physical camera stays on
-      // even when visibility is toggled off
+      // CRITICAL FIELDS:
+      // - isPresent: boolean = true if face detected, false otherwise
+      // - cameraOn: boolean = true (physical camera always on for face detection)
+      // - status: string = 'attentive'|'distracted'|'not-detected'
       webrtcRef.current.sendEngagementUpdate(userId, status, userName, true, isPresent, Date.now())
     }
   }, [userId, userName, videoRef, webrtcRef])

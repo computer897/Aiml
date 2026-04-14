@@ -175,24 +175,41 @@ def setup_socket_events(sio):
 
     @sio.on('engagement-update')
     async def on_engagement_update(sid, data):
-        """Handle engagement/attention level updates"""
+        """Handle engagement/attention level updates from students
+
+        Receives: studentId, status, studentName, cameraOn, isPresent, timestamp
+        Broadcasts to teacher with all fields for real-time present/absent display
+        """
         try:
-            classId = data.get('classId')
+            # Extract room ID - try common naming patterns
+            classId = data.get('roomId') or data.get('classId') or data.get('class_id')
             if not classId:
+                logger.debug(f'[Socket.IO] engagement-update: missing classId/roomId')
                 return
 
+            student_id = data.get('studentId')
+            status = data.get('status')  # 'attentive', 'distracted', or 'not-detected'
+            is_present = data.get('isPresent', False)  # Computed by frontend: status !== 'not-detected'
+
+            # Broadcast to teacher with all original fields + timestamps
+            # Teacher's frontend expects: is_present, is_face_detected, student_id, student_name
             await sio.emit(
                 'engagement-update',
                 {
                     'socketId': sid,
                     'classId': classId,
-                    'userId': data.get('userId'),
-                    'attentionLevel': data.get('attentionLevel'),
-                    'faceDetected': data.get('faceDetected'),
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'student_id': student_id,
+                    'studentId': student_id,  # Keep both for compatibility
+                    'student_name': data.get('studentName'),
+                    'studentName': data.get('studentName'),  # Keep both for compatibility
+                    'status': status,
+                    'is_present': is_present,  # Critical: teacher needs this
+                    'is_face_detected': status != 'not-detected',  # True if face was detected
+                    'cameraOn': data.get('cameraOn'),  # May differ from face detection
+                    'timestamp': data.get('timestamp') or datetime.now(timezone.utc).isoformat(),
                 },
                 room=classId,
-                skip_sid=sid
+                skip_sid=sid  # Don't send back to sender
             )
         except Exception as e:
             logger.error(f'[Socket.IO] Error in engagement-update: {e}')

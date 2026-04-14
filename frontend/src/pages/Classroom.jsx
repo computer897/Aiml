@@ -1422,15 +1422,32 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         const msg = JSON.parse(event.data)
         if ((msg.type === 'engagement-update' || msg.type === 'engagement_update') && msg.data) {
           const d = msg.data
+
+          // Extract presence based on:
+          // 1. is_present: boolean sent by frontend (true if status !== 'not-detected')
+          // 2. is_face_detected: boolean derived from status (true if status !== 'not-detected')
+          // Both must be true for student to show as PRESENT
+          const isPresent = d.is_present !== false && d.is_face_detected !== false
+
+          console.debug('[Classroom] Engagement update:', {
+            student_id: d.student_id,
+            student_name: d.student_name,
+            status: d.status,
+            is_present: d.is_present,
+            is_face_detected: d.is_face_detected,
+            resolved_isPresent: isPresent
+          })
+
           setStudents(prev => {
-            const idx = prev.findIndex(s => s.id === d.student_id)
-            const isPresent = d.is_present !== false && d.is_face_detected !== false
+            const idx = prev.findIndex(s => s.id === d.student_id || s.id === d.studentId)
             const entry = {
-              id: d.student_id,
-              name: d.student_name || 'Student',
-              isPresent,
-              status: isPresent ? 'active' : 'inactive',
+              id: d.student_id || d.studentId,
+              name: d.student_name || d.studentName || 'Student',
+              isPresent: isPresent, // CRITICAL: Based on face detection, not camera visibility
+              status: isPresent ? 'active' : 'inactive', // active = face detected, inactive = no face
               lookingAtScreen: d.is_looking_at_screen,
+              cameraOn: d.cameraOn, // May differ from isPresent
+              engagementStatus: d.status, // 'attentive', 'distracted', or 'not-detected'
             }
             if (idx >= 0) {
               const u = [...prev]
@@ -1733,9 +1750,13 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           {/* Hidden video element for local stream (needed for canvas capture) */}
           <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
 
-          {/* Hidden video element for attendance tracking (separate from WebRTC) */}
+          {/* Hidden video element for attendance tracking (separate from WebRTC)
+          * IMPORTANT: This video runs independently of camera on/off toggle
+          * Face detection continues even when videoOn=false (camera display off)
+          * This ensures presence is tracked based on face detection, not camera visibility
+          */}
           {user?.role === 'student' && (
-            <video ref={attendanceVideoRef} autoPlay playsInline muted className="hidden" />
+            <video ref={attendanceVideoRef} autoPlay playsInline muted className="hidden" style={{ display: 'none' }} />
           )}
 
           {/* ── Top Bar Overlay (Google Meet style – transparent gradient) ── */}
