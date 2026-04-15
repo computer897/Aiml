@@ -351,6 +351,10 @@ export const attendanceAPI = {
   exportCsv: async (classId, sessionId) => {
     return apiDownload(`/attendance/export/${classId}/${sessionId}`)
   },
+
+  exportExcel: async (classId, sessionId) => {
+    return apiDownload(`/attendance/export-excel/${classId}/${sessionId}`)
+  },
 }
 
 // WebSocket connection for real-time updates

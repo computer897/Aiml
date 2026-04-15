@@ -39,7 +39,7 @@ const VideoTile = memo(function VideoTile({ stream, name, role, isLocal, videoOn
         autoPlay
         playsInline
         muted={isLocal}
-        className={`absolute inset-0 w-full h-full transition-opacity duration-300 ${fit === 'contain' ? 'main-video object-contain bg-black' : 'object-contain bg-black'} ${showVideo ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`absolute inset-0 w-full h-full transition-opacity duration-300 ${fit === 'contain' ? 'object-contain bg-black' : 'object-cover bg-black'} ${showVideo ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         style={mirror ? { transform: 'scaleX(-1)' } : undefined}
       />
       {/* Avatar fallback when camera is off */}
@@ -58,6 +58,14 @@ const VideoTile = memo(function VideoTile({ stream, name, role, isLocal, videoOn
           {micOn === false && <MicOff className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-400 flex-shrink-0" />}
         </div>
       </div>
+
+      {/* Present Status Badge (Google Meet style) */}
+      {!isLocal && !isSmall && (
+        <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-green-600/90 backdrop-blur-sm rounded-full text-white text-[10px] sm:text-xs font-semibold uppercase tracking-wider">
+          <div className="w-1.5 h-1.5 rounded-full bg-green-300 animate-pulse" />
+          Present
+        </div>
+      )}
       {/* Pin indicator for teacher */}
       {role === 'teacher' && !isSmall && !isScreenShare && (
         <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/80 backdrop-blur-sm rounded-md text-white text-[10px] font-semibold uppercase tracking-wider">

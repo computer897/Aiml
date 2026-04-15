@@ -49,8 +49,9 @@ function PermissionDialog({ onAllow, onDeny }) {
 
 // ─── Pre-Join Screen (Google Meet Style) ────────────────────────────────────
 function PreJoinScreen({ classData, user, onJoin, onLeave }) {
-  const [micOn, setMicOn] = useState(false)
-  const [videoOn, setVideoOn] = useState(false)
+  // Teachers default to mic/video ON; students default to OFF
+  const [micOn, setMicOn] = useState(user?.role === 'teacher')
+  const [videoOn, setVideoOn] = useState(user?.role === 'teacher')
   const [stream, setStream] = useState(null)
   const [permissionState, setPermissionState] = useState('prompt')
   const [showPermissionDialog, setShowPermissionDialog] = useState(true)
@@ -663,8 +664,9 @@ function ParticipantsPanel({ participants, user, onMuteUser, onRemoveUser }) {
 
 // ─── Live Classroom ─────────────────────────────────────────────────────────
 function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessionId }) {
-  const [micOn, setMicOn] = useState(initialSettings?.micOn ?? false)
-  const [videoOn, setVideoOn] = useState(initialSettings?.videoOn ?? false)
+  // Teachers/hosts default to mic ON; students default to OFF
+  const [micOn, setMicOn] = useState(initialSettings?.micOn ?? (user?.role === 'teacher'))
+  const [videoOn, setVideoOn] = useState(initialSettings?.videoOn ?? (user?.role === 'teacher'))
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [screenShareStream, setScreenShareStream] = useState(null)
@@ -802,8 +804,9 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           localVideoRef.current.srcObject = stream
         }
         // Apply initial mic/video settings to the stream
-        const initMic = initialSettings?.micOn ?? true
-        const initVideo = initialSettings?.videoOn ?? true
+        // Teachers default to ON, students default to OFF
+        const initMic = initialSettings?.micOn ?? (user?.role === 'teacher')
+        const initVideo = initialSettings?.videoOn ?? (user?.role === 'teacher')
         stream.getAudioTracks().forEach(t => { t.enabled = initMic })
         stream.getVideoTracks().forEach(t => { t.enabled = initVideo })
         // Debug: log local stream tracks before passing to WebRTC
@@ -954,6 +957,8 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
             name: data.studentName || 'Student',
             isPresent,
             status: isPresent ? 'active' : 'inactive',
+            engagementStatus: data.status || null,
+            lastEngagementAt: data.timestamp || Date.now(),
             cameraOn: data.cameraOn !== false,
             // Preserve existing joinTime or use server-provided one
             joinTime: data.joinTimeLabel || data.joinTime || null,
@@ -1672,6 +1677,27 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   // Determine active side panel
   const activeSidePanel = showChat ? 'chat' : showDoubts ? 'doubts' : showEngagement ? 'engagement' : showParticipants ? 'participants' : null
 
+  const engagementDetails = useMemo(() => {
+    const details = {}
+    students.forEach((student) => {
+      if (!student?.id && !student?.name) return
+      const payload = {
+        engagementStatus: student.engagementStatus || null,
+        isPresent: student.isPresent !== false && student.status !== 'inactive',
+        cameraOn: student.cameraOn !== false,
+        lastEngagementAt: student.lastEngagementAt || null,
+      }
+
+      if (student.id) {
+        details[String(student.id)] = payload
+      }
+      if (student.name) {
+        details[String(student.name).toLowerCase()] = payload
+      }
+    })
+    return details
+  }, [students])
+
   // ── Student: Show waiting for approval screen ──
   if (user?.role === 'student' && waitingForApproval) {
     return <WaitingForApprovalScreen classData={classData} onLeave={onLeave} connectionState={connectionState} />
@@ -1698,6 +1724,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           classTitle={classData?.title}
           classId={classData?.class_id}
           sessionId={attendanceReport?.session_id || sessionId}
+          engagementDetails={engagementDetails}
           onClose={() => {
             setShowAttendanceReport(false)
             onLeave({

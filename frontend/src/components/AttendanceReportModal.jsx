@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { X, Download, Users, CheckCircle, AlertCircle, Percent } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
+import { X, Download, Users, CheckCircle, AlertCircle, Percent, BarChart3, Eye } from 'lucide-react'
 import { attendanceAPI } from '../services/api'
 
 /**
@@ -16,14 +16,59 @@ import { attendanceAPI } from '../services/api'
  *   onClose  – called when the user dismisses the modal
  *   autoDownload – (optional) if true, automatically download CSV when modal appears
  */
-function AttendanceReportModal({ report = [], endTime, classTitle, classId, sessionId, onClose, autoDownload = false }) {
+function AttendanceReportModal({ report = [], endTime, classTitle, classId, sessionId, engagementDetails = {}, onClose, autoDownload = false }) {
   const endDate = endTime ? new Date(endTime) : new Date()
 
+  const getEngagementStatus = (entry, liveDetails) => {
+    if (entry?.engagement_status) return entry.engagement_status
+    if (liveDetails?.engagementStatus) return liveDetails.engagementStatus
+
+    const percentage = Number(entry?.engagement_percentage || 0)
+    if ((entry?.attendance_status || '').toLowerCase() === 'absent' || percentage <= 0) {
+      return 'not-detected'
+    }
+    if (percentage >= 70) return 'attentive'
+    return 'distracted'
+  }
+
+  const getEngagementLabel = (status) => {
+    if (status === 'attentive') return 'Attentive'
+    if (status === 'distracted') return 'Distracted'
+    if (status === 'not-detected') return 'Not detected'
+    return 'Unknown'
+  }
+
+  const engagementStatusStyle = (status) => {
+    if (status === 'attentive') return 'bg-green-900/40 text-green-400'
+    if (status === 'distracted') return 'bg-amber-900/40 text-amber-400'
+    if (status === 'not-detected') return 'bg-red-900/40 text-red-400'
+    return 'bg-gray-700 text-gray-400'
+  }
+
+  const normalizedReport = useMemo(() => {
+    return report.map((entry) => {
+      const detailsById = entry?.student_id ? engagementDetails[String(entry.student_id)] : null
+      const detailsByName = entry?.student_name ? engagementDetails[String(entry.student_name).toLowerCase()] : null
+      const liveDetails = detailsById || detailsByName || null
+      const engagementStatus = getEngagementStatus(entry, liveDetails)
+
+      return {
+        ...entry,
+        engagementStatus,
+      }
+    })
+  }, [engagementDetails, report])
+
   // ── Summary stats ──
-  const total = report.length
-  const presentCount = report.filter(r => r.attendance_status === 'present').length
-  const absentCount = report.filter(r => r.attendance_status === 'absent').length
+  const total = normalizedReport.length
+  const presentCount = normalizedReport.filter(r => r.attendance_status === 'present').length
+  const absentCount = normalizedReport.filter(r => r.attendance_status === 'absent').length
   const attendanceRate = total > 0 ? Math.round((presentCount / total) * 100) : 0
+  const averageEngagement = total > 0
+    ? Math.round(normalizedReport.reduce((sum, entry) => sum + Number(entry.engagement_percentage || 0), 0) / total)
+    : 0
+  const attentiveCount = normalizedReport.filter(r => r.engagementStatus === 'attentive').length
+  const notDetectedCount = normalizedReport.filter(r => r.engagementStatus === 'not-detected').length
 
   // ── Engagement badge styling ──
   const engagementStyle = (status) => {
@@ -81,12 +126,14 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
         {/* ── Summary Stats ── */}
         <div className="px-6 py-4 border-b border-gray-700 flex-shrink-0">
           {/* Main Attendance Summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
             {[
               { label: 'Total Students', value: total,            color: 'text-white',        icon: Users },
               { label: 'Present',        value: presentCount,     color: 'text-green-400',    icon: CheckCircle },
               { label: 'Absent',         value: absentCount,      color: 'text-red-400',      icon: AlertCircle },
               { label: 'Attendance Rate', value: `${attendanceRate}%`, color: 'text-primary-400', icon: Percent },
+              { label: 'Avg Engagement', value: `${averageEngagement}%`, color: 'text-amber-400', icon: BarChart3 },
+              { label: 'Attentive', value: attentiveCount, color: 'text-cyan-400', icon: Eye },
             ].map(({ label, value, color, icon: Icon }) => (
               <div key={label} className="bg-gray-800 rounded-xl p-3 text-center">
                 <Icon className={`w-4 h-4 ${color} mx-auto mb-1`} />
@@ -113,12 +160,15 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
             <p className="text-xs text-gray-500 mt-2">
               {presentCount} of {total} students met the 70% presence requirement
             </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {attentiveCount} attentive, {notDetectedCount} not detected by the end of class
+            </p>
           </div>
         </div>
 
         {/* ── Table ── */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {report.length === 0 ? (
+          {normalizedReport.length === 0 ? (
             <div className="text-center py-12">
               <Users className="w-10 h-10 text-gray-600 mx-auto mb-3" />
               <p className="text-gray-400">No attendance data recorded for this session.</p>
@@ -129,12 +179,13 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
                 <tr className="text-gray-400 text-xs uppercase tracking-wide border-b border-gray-700">
                   <th className="text-left pb-3 pr-4">Student Name</th>
                   <th className="text-left pb-3 pr-4">Engagement Time</th>
-                  <th className="text-left pb-3 pr-4">Attendance %</th>
-                  <th className="text-left pb-3">Status</th>
+                  <th className="text-left pb-3 pr-4">Engagement %</th>
+                  <th className="text-left pb-3 pr-4">Engagement Status</th>
+                  <th className="text-left pb-3">Attendance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {report.map((entry, idx) => (
+                {normalizedReport.map((entry, idx) => (
                   <tr key={entry.student_id || idx} className="hover:bg-gray-800/50 transition-colors">
                     <td className="py-3 pr-4">
                       <div className="flex items-center gap-2">
@@ -151,6 +202,11 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
                     </td>
                     <td className="py-3 pr-4 text-gray-300 font-semibold">
                       {Math.round(entry.engagement_percentage || 0)}%
+                    </td>
+                    <td className="py-3 pr-4">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${engagementStatusStyle(entry.engagementStatus)}`}>
+                        {getEngagementLabel(entry.engagementStatus)}
+                      </span>
                     </td>
                     <td className="py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${engagementStyle(entry.attendance_status)}`}>
@@ -175,7 +231,7 @@ function AttendanceReportModal({ report = [], endTime, classTitle, classId, sess
           </button>
           <button
             onClick={handleDownloadCSV}
-            disabled={report.length === 0 || !classId || !sessionId}
+            disabled={normalizedReport.length === 0 || !classId || !sessionId}
             className="flex items-center gap-2 px-5 py-2 bg-primary-600 hover:bg-primary-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition shadow-lg shadow-primary-600/25"
           >
             <Download className="w-4 h-4" />

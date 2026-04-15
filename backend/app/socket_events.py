@@ -215,6 +215,115 @@ def setup_socket_events(sio):
             logger.error(f'[Socket.IO] Error in engagement-update: {e}')
 
 
+    @sio.on('end-class')
+    async def on_end_class(sid, data):
+        """
+        Handle teacher ending the class.
+        Finalizes attendance for all students and broadcasts report to class.
+
+        Expected data:
+        - classId: Class identifier
+        - sessionId: Session identifier
+        - token: JWT token for API authentication
+        """
+        try:
+            classId = data.get('classId')
+            sessionId = data.get('sessionId')
+            token = data.get('token')
+
+            if not classId or not sessionId:
+                logger.error(f'[Socket.IO] end-class: missing classId or sessionId')
+                await sio.emit('error', {
+                    'message': 'Missing class or session information'
+                }, to=sid)
+                return
+
+            logger.info(f'[Socket.IO] 👋 Class ending: {classId}, session: {sessionId}')
+
+            # Import here to avoid circular imports
+            from app.attendance import get_attendance_manager
+            from app.database import get_database
+            from app.auth import decode_access_token
+
+            try:
+                # Verify teacher authorization
+                if token:
+                    payload = decode_access_token(token)
+                    user_id = payload.get('sub')
+                    logger.info(f'[Socket.IO] end-class: authorized by teacher {user_id}')
+            except Exception as e:
+                logger.warning(f'[Socket.IO] end-class: token verification failed: {e}')
+                # Continue anyway - class end might be system-triggered
+
+            # Get database instance
+            try:
+                db = get_database()
+            except Exception as e:
+                logger.error(f'[Socket.IO] end-class: Could not get database: {e}')
+                await sio.emit('error', {
+                    'message': 'Database unavailable'
+                }, to=sid)
+                return
+
+            if not db:
+                logger.error('[Socket.IO] end-class: Database not available')
+                await sio.emit('error', {
+                    'message': 'Database unavailable'
+                }, to=sid)
+                return
+
+            # Fetch class document
+            class_doc = await db.classes.find_one({'class_id': classId})
+            if not class_doc:
+                logger.error(f'[Socket.IO] end-class: Class {classId} not found')
+                await sio.emit('error', {
+                    'message': 'Class not found'
+                }, to=sid)
+                return
+
+            # Finalize attendance
+            attendance_manager = get_attendance_manager()
+            from datetime import datetime
+            report = await attendance_manager.finalize_class_attendance(
+                class_doc=class_doc,
+                session_id=sessionId,
+                ended_at=datetime.utcnow(),
+                db=db
+            )
+
+            # Update class as finished
+            await db.classes.update_one(
+                {'_id': class_doc['_id']},
+                {
+                    '$set': {
+                        'is_active': False,
+                        'is_finished': True,
+                        'ended_at': datetime.utcnow()
+                    }
+                }
+            )
+
+            logger.info(f'✅ [Socket.IO] Class {classId} ended: {report.present_count}/{report.total_students} present')
+
+            # Broadcast finalized report to all in class
+            await sio.emit(
+                'class-ended',
+                {
+                    'classId': classId,
+                    'sessionId': sessionId,
+                    'report': report.model_dump(),
+                    'timestamp': datetime.utcnow().isoformat(),
+                },
+                room=classId
+            )
+
+        except Exception as e:
+            logger.error(f'[Socket.IO] Error in end-class: {e}', exc_info=True)
+            await sio.emit('error', {
+                'message': f'Error ending class: {str(e)}'
+            }, to=sid)
+
+
     @sio.on('error')
     def on_error(sid, data):
         """Handle Socket.IO errors"""

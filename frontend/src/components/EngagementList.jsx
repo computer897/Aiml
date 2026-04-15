@@ -1,4 +1,4 @@
-import { Radio, Download, Users } from 'lucide-react'
+import { Radio, Download, Users, FileText } from 'lucide-react'
 import { attendanceAPI } from '../services/api'
 
 function EngagementList({ students, onSelectStudent, classId, sessionId }) {
@@ -14,7 +14,7 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
       alert('Session information not available for export')
       return
     }
-    
+
     try {
       const blob = await attendanceAPI.exportCSV(classId, sessionId)
       const url = URL.createObjectURL(blob)
@@ -26,8 +26,31 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch (err) {
-      console.error('Failed to export:', err)
-      alert('Failed to export attendance. Please try again.')
+      console.error('Failed to export CSV:', err)
+      alert('Failed to export attendance CSV. Please try again.')
+    }
+  }
+
+  // Export attendance to Excel
+  const handleExportExcel = async () => {
+    if (!classId || !sessionId) {
+      alert('Session information not available for export')
+      return
+    }
+
+    try {
+      const blob = await attendanceAPI.exportExcel(classId, sessionId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `attendance_${classId}_${new Date().toISOString().split('T')[0]}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Failed to export Excel:', err)
+      alert('Failed to export attendance Excel file. Please try again.')
     }
   }
 
@@ -43,13 +66,22 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
             <h3 className="font-bold text-white text-lg">Live Attendance</h3>
           </div>
           {classId && sessionId && (
-            <button
-              onClick={handleExportCSV}
-              className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
-              title="Export attendance"
-            >
-              <Download className="w-5 h-5" />
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleExportCSV}
+                className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+                title="Export as CSV"
+              >
+                <Download className="w-5 h-5" />
+              </button>
+              <button
+                onClick={handleExportExcel}
+                className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+                title="Export as Excel"
+              >
+                <FileText className="w-5 h-5" />
+              </button>
+            </div>
           )}
         </div>
 
