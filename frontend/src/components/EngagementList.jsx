@@ -1,5 +1,5 @@
 import { Radio, Download, Users, FileText } from 'lucide-react'
-import { attendanceAPI } from '../services/api'
+import { attendanceAPI, downloadBlob } from '../services/api'
 
 function EngagementList({ students, onSelectStudent, classId, sessionId }) {
   const sortedStudents = [...students].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
@@ -10,47 +10,45 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
 
   // Export attendance to CSV
   const handleExportCSV = async () => {
-    if (!classId || !sessionId) {
-      alert('Session information not available for export')
+    if (!classId) {
+      alert('Class ID is missing. Cannot export.')
+      return
+    }
+    if (!sessionId) {
+      alert('Session ID is missing. Cannot export.')
       return
     }
 
     try {
+      console.log('[EngagementList] Exporting CSV:', { classId, sessionId })
       const blob = await attendanceAPI.exportCSV(classId, sessionId)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `attendance_${classId}_${new Date().toISOString().split('T')[0]}.csv`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `attendance_${classId}_${new Date().toISOString().split('T')[0]}.csv`)
+      console.log('[EngagementList] CSV export successful')
     } catch (err) {
-      console.error('Failed to export CSV:', err)
-      alert('Failed to export attendance CSV. Please try again.')
+      console.error('[EngagementList] Failed to export CSV:', err)
+      alert(err.message || 'Failed to export attendance CSV. Please try again.')
     }
   }
 
   // Export attendance to Excel
   const handleExportExcel = async () => {
-    if (!classId || !sessionId) {
-      alert('Session information not available for export')
+    if (!classId) {
+      alert('Class ID is missing. Cannot export.')
+      return
+    }
+    if (!sessionId) {
+      alert('Session ID is missing. Cannot export.')
       return
     }
 
     try {
+      console.log('[EngagementList] Exporting Excel:', { classId, sessionId })
       const blob = await attendanceAPI.exportExcel(classId, sessionId)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `attendance_${classId}_${new Date().toISOString().split('T')[0]}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `attendance_${classId}_${new Date().toISOString().split('T')[0]}.xlsx`)
+      console.log('[EngagementList] Excel export successful')
     } catch (err) {
-      console.error('Failed to export Excel:', err)
-      alert('Failed to export attendance Excel file. Please try again.')
+      console.error('[EngagementList] Failed to export Excel:', err)
+      alert(err.message || 'Failed to export attendance Excel file. Please try again.')
     }
   }
 
@@ -65,24 +63,22 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
             </div>
             <h3 className="font-bold text-white text-lg">Live Attendance</h3>
           </div>
-          {classId && sessionId && (
-            <div className="flex gap-2">
-              <button
-                onClick={handleExportCSV}
-                className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
-                title="Export as CSV"
-              >
-                <Download className="w-5 h-5" />
-              </button>
-              <button
-                onClick={handleExportExcel}
-                className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
-                title="Export as Excel"
-              >
-                <FileText className="w-5 h-5" />
-              </button>
-            </div>
-          )}
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportCSV}
+              className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+              title="Export as CSV"
+            >
+              <Download className="w-5 h-5" />
+            </button>
+            <button
+              onClick={handleExportExcel}
+              className="p-2 hover:bg-gray-700 rounded-lg transition text-gray-400 hover:text-white"
+              title="Export as Excel"
+            >
+              <FileText className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -102,14 +98,26 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-3 mt-4 pt-3 border-t border-gray-700 text-xs">
+        <div className="flex flex-col gap-2 mt-4 pt-3 border-t border-gray-700 text-xs">
           <div className="flex items-center gap-1.5">
             <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-            <span className="text-gray-400">Face detected</span>
+            <span className="text-gray-400">Face detected & focused</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-            <span className="text-gray-400">No face</span>
+            <span className="text-gray-400">No face detected (Absent)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-yellow-400">📷 Off</span>
+            <span className="text-gray-400">Camera disabled but tracking</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-blue-400">👁️ Focused</span>
+            <span className="text-gray-400">Student looking at screen</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-orange-400">😕 Distracted</span>
+            <span className="text-gray-400">Face detected but not focused</span>
           </div>
         </div>
       </div>
@@ -154,6 +162,24 @@ function EngagementList({ students, onSelectStudent, classId, sessionId }) {
                     }`}>
                       {isPresent ? 'Present' : 'Absent'}
                     </span>
+                    {/* Camera status indicator */}
+                    {student.cameraOn === false && (
+                      <div className="text-xs px-2 py-1 bg-yellow-900/30 text-yellow-400 rounded-full" title="Camera off but face detected">
+                        📷 Off
+                      </div>
+                    )}
+                    {/* Engagement status indicator */}
+                    {isPresent && student.engagementStatus && (
+                      <div className={`text-xs px-2 py-1 rounded-full ${
+                        student.engagementStatus === 'attentive'
+                          ? 'bg-blue-900/30 text-blue-400'
+                          : student.engagementStatus === 'distracted'
+                          ? 'bg-orange-900/30 text-orange-400'
+                          : 'bg-gray-900/30 text-gray-400'
+                      }`}>
+                        {student.engagementStatus === 'attentive' ? '👁️ Focused' : student.engagementStatus === 'distracted' ? '😕 Distracted' : '❓ Detecting'}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

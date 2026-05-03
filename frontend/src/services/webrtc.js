@@ -90,6 +90,7 @@ export function createWebRTCManager() {
   let userName = null
   let destroyed = false
   let isApproved = false // Track if student has been approved to join
+  let bypassApproval = false
 
   // Callbacks (set by component)
   const callbacks = {
@@ -592,13 +593,14 @@ export function createWebRTCManager() {
    * - Teacher: joins directly and becomes host
    * - Student: requests to join (enters waiting room), WebRTC starts only after approval
    */
-  function joinRoom(rid, r, uid, uname, stream, token = null) {
+  function joinRoom(rid, r, uid, uname, stream, token = null, options = {}) {
     roomId = rid
     role = r
     userId = uid
     userName = uname
     localStream = stream
     authToken = token
+    bypassApproval = options?.bypassApproval === true
 
     console.log('[WebRTC] joinRoom:', { roomId, role, userId, userName, hasStream: !!stream })
 
@@ -636,6 +638,17 @@ export function createWebRTCManager() {
         token: authToken
       })
       console.log(`[WebRTC] Teacher joined room ${roomId}`)
+    } else if (bypassApproval) {
+      // Active class: students join directly without waiting for host approval
+      isApproved = true
+      socket.emit('join-room', {
+        roomId,
+        role,
+        userId,
+        userName,
+        token: authToken
+      })
+      console.log(`[WebRTC] Student joined room ${roomId} directly (approval bypassed)`)
     } else {
       // Student requests to join (goes to waiting room)
       isApproved = false

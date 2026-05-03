@@ -49,9 +49,8 @@ function PermissionDialog({ onAllow, onDeny }) {
 
 // ─── Pre-Join Screen (Google Meet Style) ────────────────────────────────────
 function PreJoinScreen({ classData, user, onJoin, onLeave }) {
-  // Teachers default to mic/video ON; students default to OFF
-  const [micOn, setMicOn] = useState(user?.role === 'teacher')
-  const [videoOn, setVideoOn] = useState(user?.role === 'teacher')
+  const [micOn, setMicOn] = useState(false)
+  const [videoOn, setVideoOn] = useState(false)
   const [stream, setStream] = useState(null)
   const [permissionState, setPermissionState] = useState('prompt')
   const [showPermissionDialog, setShowPermissionDialog] = useState(true)
@@ -319,6 +318,11 @@ function WaitingForApprovalScreen({ classData, onLeave, connectionState }) {
 
 // ─── Join Rejected Screen ────────────────────────────────────────────────────
 function JoinRejectedScreen({ classData, onLeave }) {
+  const handleLeave = (event) => {
+    event?.preventDefault?.()
+    onLeave?.()
+  }
+
   return (
     <div className="h-[100dvh] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4 safe-bottom">
       <div className="max-w-lg w-full text-center">
@@ -331,7 +335,7 @@ function JoinRejectedScreen({ classData, onLeave }) {
           The host has denied your request to join this meeting.
         </p>
 
-        <button type="button" onClick={onLeave} className="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition font-medium">
+        <button type="button" onClick={handleLeave} onTouchEnd={handleLeave} className="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition font-medium">
           Return to Dashboard
         </button>
       </div>
@@ -431,6 +435,10 @@ function JoinRequestModal({ requests, onAccept, onReject, onAcceptAll, onRejectA
 // ─── Class Finished Screen ───────────────────────────────────────────────────
 function ClassFinishedScreen({ classData, onLeave }) {
   const endTime = classData?.ended_at ? new Date(classData.ended_at) : new Date()
+  const handleLeave = (event) => {
+    event?.preventDefault?.()
+    onLeave?.()
+  }
   
   return (
     <div className="h-[100dvh] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
@@ -495,7 +503,8 @@ function ClassFinishedScreen({ classData, onLeave }) {
           {/* Action Button */}
           <div className="px-8 pb-8">
             <button
-              onClick={onLeave}
+              onClick={handleLeave}
+              onTouchEnd={handleLeave}
               className="w-full py-3.5 bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 text-white rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-primary-600/25 hover:shadow-primary-500/40"
             >
               Return to Dashboard
@@ -514,6 +523,11 @@ function ClassFinishedScreen({ classData, onLeave }) {
 
 // ─── Teacher Left Banner ─────────────────────────────────────────────────────
 function TeacherLeftBanner({ onLeave }) {
+  const handleLeave = (event) => {
+    event?.preventDefault?.()
+    onLeave?.()
+  }
+
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-800 rounded-2xl p-6 sm:p-8 max-w-md w-full text-center border border-gray-700">
@@ -522,7 +536,7 @@ function TeacherLeftBanner({ onLeave }) {
         </div>
         <h2 className="text-white text-xl font-semibold mb-2">The teacher has left</h2>
         <p className="text-gray-400 text-sm mb-6">The host ended the meeting. You will be redirected to the dashboard.</p>
-        <button type="button" onClick={onLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
+        <button type="button" onClick={handleLeave} onTouchEnd={handleLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
           Return to Dashboard
         </button>
       </div>
@@ -532,6 +546,11 @@ function TeacherLeftBanner({ onLeave }) {
 
 // ─── Removed From Room Banner ────────────────────────────────────────────────
 function RemovedBanner({ onLeave }) {
+  const handleLeave = (event) => {
+    event?.preventDefault?.()
+    onLeave?.()
+  }
+
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-800 rounded-2xl p-6 sm:p-8 max-w-md w-full text-center border border-gray-700">
@@ -540,7 +559,7 @@ function RemovedBanner({ onLeave }) {
         </div>
         <h2 className="text-white text-xl font-semibold mb-2">You&apos;ve been removed</h2>
         <p className="text-gray-400 text-sm mb-6">The host has removed you from this meeting.</p>
-        <button type="button" onClick={onLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
+        <button type="button" onClick={handleLeave} onTouchEnd={handleLeave} className="px-6 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium">
           Return to Dashboard
         </button>
       </div>
@@ -550,6 +569,11 @@ function RemovedBanner({ onLeave }) {
 
 // ─── Class Not Found / Error Screen ──────────────────────────────────────────
 function ClassNotFoundScreen({ onLeave }) {
+  const handleLeave = (event) => {
+    event?.preventDefault?.()
+    onLeave?.()
+  }
+
   return (
     <div className="h-[100dvh] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4 safe-bottom">
       <div className="max-w-lg w-full text-center">
@@ -562,7 +586,7 @@ function ClassNotFoundScreen({ onLeave }) {
           This classroom could not be loaded. The class may have been deleted or you don&apos;t have access to it.
         </p>
 
-        <button onClick={onLeave} className="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition font-medium">
+        <button onClick={handleLeave} onTouchEnd={handleLeave} className="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition font-medium">
           Return to Dashboard
         </button>
       </div>
@@ -664,9 +688,8 @@ function ParticipantsPanel({ participants, user, onMuteUser, onRemoveUser }) {
 
 // ─── Live Classroom ─────────────────────────────────────────────────────────
 function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessionId }) {
-  // Teachers/hosts default to mic ON; students default to OFF
-  const [micOn, setMicOn] = useState(initialSettings?.micOn ?? (user?.role === 'teacher'))
-  const [videoOn, setVideoOn] = useState(initialSettings?.videoOn ?? (user?.role === 'teacher'))
+  const [micOn, setMicOn] = useState(initialSettings?.micOn ?? false)
+  const [videoOn, setVideoOn] = useState(initialSettings?.videoOn ?? false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [screenShareStream, setScreenShareStream] = useState(null)
@@ -714,7 +737,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   const [isStudentApproved, setIsStudentApproved] = useState(user?.role === 'teacher')
 
   // Waiting room states - Students start in waiting state by default
-  const [waitingForApproval, setWaitingForApproval] = useState(user?.role === 'student')
+  const [waitingForApproval, setWaitingForApproval] = useState(false)
   const [joinRejected, setJoinRejected] = useState(false)
   const [joinRequests, setJoinRequests] = useState([]) // Teacher's waiting list
 
@@ -804,9 +827,8 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           localVideoRef.current.srcObject = stream
         }
         // Apply initial mic/video settings to the stream
-        // Teachers default to ON, students default to OFF
-        const initMic = initialSettings?.micOn ?? (user?.role === 'teacher')
-        const initVideo = initialSettings?.videoOn ?? (user?.role === 'teacher')
+        const initMic = initialSettings?.micOn ?? true
+        const initVideo = initialSettings?.videoOn ?? true
         stream.getAudioTracks().forEach(t => { t.enabled = initMic })
         stream.getVideoTracks().forEach(t => { t.enabled = initVideo })
         // Debug: log local stream tracks before passing to WebRTC
@@ -950,16 +972,19 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         if (user?.role !== 'teacher') return
         setStudents(prev => {
           const idx = prev.findIndex(s => s.id === data.studentId)
-          const isPresent = data.isPresent !== false && data.status !== 'not-detected'
+          const cameraOn = data.cameraOn !== false
+          // Presence based on FACE DETECTION (isPresent), not camera visibility
+          // - isPresent: true when face is detected and student is attentive
+          // - This allows teachers to see who is actually present even if camera is off
+          const isPresent = data.isPresent === true
           const entry = {
             id: data.studentId || data.socketId,
             socketId: data.socketId,
             name: data.studentName || 'Student',
             isPresent,
             status: isPresent ? 'active' : 'inactive',
-            engagementStatus: data.status || null,
-            lastEngagementAt: data.timestamp || Date.now(),
-            cameraOn: data.cameraOn !== false,
+            cameraOn,
+            engagementStatus: data.status, // 'attentive', 'distracted', or 'not-detected'
             // Preserve existing joinTime or use server-provided one
             joinTime: data.joinTimeLabel || data.joinTime || null,
           }
@@ -1115,45 +1140,46 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       }
 
       // Student: approved to join
+      const startStudentAttendance = async () => {
+        if (user?.role !== 'student' || !consentGiven) return
+
+        try {
+          let activeSessionId = classData?.active_session_id || initialSessionId
+          let resolvedClassData = classData
+
+          if (!activeSessionId && classData?.class_id) {
+            const latestClass = await classAPI.get(classData.class_id)
+            resolvedClassData = latestClass
+            activeSessionId = latestClass?.active_session_id || null
+          }
+
+          if (!activeSessionId) {
+            console.error('Missing active session ID for class attendance tracking')
+            return
+          }
+
+          setSessionId(activeSessionId)
+
+          await attendanceAPI.start(resolvedClassData.class_id, activeSessionId, {
+            classTitle: resolvedClassData?.title,
+            teacherName: resolvedClassData?.teacher_name,
+            startedAt: resolvedClassData?.session_started_at,
+          })
+
+          console.log('[Classroom] Attendance session started')
+          initializeFaceTracking(activeSessionId)
+        } catch (err) {
+          console.error('Failed to start attendance:', err)
+        }
+      }
+
       rtc.callbacks.onJoinApproved = () => {
         console.log('[Classroom] Join approved!')
         setWaitingForApproval(false)
         setJoinRejected(false)
         // Activate the engagement detection hook
         setIsStudentApproved(true)
-        // Start attendance and face tracking after approval (student with consent)
-        if (user?.role === 'student' && consentGiven) {
-          ;(async () => {
-            try {
-              let activeSessionId = classData?.active_session_id || initialSessionId
-              let resolvedClassData = classData
-
-              if (!activeSessionId && classData?.class_id) {
-                const latestClass = await classAPI.get(classData.class_id)
-                resolvedClassData = latestClass
-                activeSessionId = latestClass?.active_session_id || null
-              }
-
-              if (!activeSessionId) {
-                console.error('Missing active session ID for class attendance tracking')
-                return
-              }
-
-              setSessionId(activeSessionId)
-
-              await attendanceAPI.start(resolvedClassData.class_id, activeSessionId, {
-                classTitle: resolvedClassData?.title,
-                teacherName: resolvedClassData?.teacher_name,
-                startedAt: resolvedClassData?.session_started_at,
-              })
-
-              console.log('[Classroom] Attendance session started')
-              initializeFaceTracking(activeSessionId)
-            } catch (err) {
-              console.error('Failed to start attendance:', err)
-            }
-          })()
-        }
+        startStudentAttendance()
       }
 
       // Initialize face detection for attendance (browser-side only)
@@ -1263,6 +1289,8 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
       }
 
       // Join the room
+      const bypassApproval = user?.role === 'student' && (classData?.is_active === true || !!classData?.session_started_at)
+
       if (stream) {
         try {
           console.log('[Classroom] Attempting to join WebRTC room:', {
@@ -1279,10 +1307,18 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
             user?.id || user?._id,
             user?.name,
             stream,
-            token
+            token,
+            { bypassApproval }
           )
           
           console.log('[Classroom] Successfully called joinRoom')
+
+          if (bypassApproval) {
+            setWaitingForApproval(false)
+            setJoinRejected(false)
+            setIsStudentApproved(true)
+            await startStudentAttendance()
+          }
         } catch (err) {
           console.error('[Classroom] Error joining room:', err)
           setError(`Failed to connect to classroom: ${err.message}`)
@@ -1428,16 +1464,16 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
         if ((msg.type === 'engagement-update' || msg.type === 'engagement_update') && msg.data) {
           const d = msg.data
 
-          // Extract presence based on:
-          // 1. is_present: boolean sent by frontend (true if status !== 'not-detected')
-          // 2. is_face_detected: boolean derived from status (true if status !== 'not-detected')
-          // Both must be true for student to show as PRESENT
-          const isPresent = d.is_present !== false && d.is_face_detected !== false
+          // Presence based on FACE DETECTION, not camera visibility
+          // Backend sends is_present which represents whether face was detected and attentive
+          const cameraOn = d.cameraOn !== false
+          const isPresent = d.is_present === true
 
-          console.debug('[Classroom] Engagement update:', {
+          console.debug('[Classroom] Engagement update (WebSocket):', {
             student_id: d.student_id,
             student_name: d.student_name,
             status: d.status,
+            camera_on: cameraOn,
             is_present: d.is_present,
             is_face_detected: d.is_face_detected,
             resolved_isPresent: isPresent
@@ -1451,7 +1487,7 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
               isPresent: isPresent, // CRITICAL: Based on face detection, not camera visibility
               status: isPresent ? 'active' : 'inactive', // active = face detected, inactive = no face
               lookingAtScreen: d.is_looking_at_screen,
-              cameraOn: d.cameraOn, // May differ from isPresent
+              cameraOn: cameraOn,
               engagementStatus: d.status, // 'attentive', 'distracted', or 'not-detected'
             }
             if (idx >= 0) {
@@ -1677,27 +1713,6 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
   // Determine active side panel
   const activeSidePanel = showChat ? 'chat' : showDoubts ? 'doubts' : showEngagement ? 'engagement' : showParticipants ? 'participants' : null
 
-  const engagementDetails = useMemo(() => {
-    const details = {}
-    students.forEach((student) => {
-      if (!student?.id && !student?.name) return
-      const payload = {
-        engagementStatus: student.engagementStatus || null,
-        isPresent: student.isPresent !== false && student.status !== 'inactive',
-        cameraOn: student.cameraOn !== false,
-        lastEngagementAt: student.lastEngagementAt || null,
-      }
-
-      if (student.id) {
-        details[String(student.id)] = payload
-      }
-      if (student.name) {
-        details[String(student.name).toLowerCase()] = payload
-      }
-    })
-    return details
-  }, [students])
-
   // ── Student: Show waiting for approval screen ──
   if (user?.role === 'student' && waitingForApproval) {
     return <WaitingForApprovalScreen classData={classData} onLeave={onLeave} connectionState={connectionState} />
@@ -1724,7 +1739,6 @@ function LiveClassroom({ classData, user, onLeave, initialSettings, initialSessi
           classTitle={classData?.title}
           classId={classData?.class_id}
           sessionId={attendanceReport?.session_id || sessionId}
-          engagementDetails={engagementDetails}
           onClose={() => {
             setShowAttendanceReport(false)
             onLeave({

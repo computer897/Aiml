@@ -139,6 +139,29 @@ const apiDownload = async (endpoint, options = {}) => {
   return response.blob()
 }
 
+export const downloadBlob = (blob, filename) => {
+  if (!(blob instanceof Blob)) {
+    throw new Error('No file was returned from the server.')
+  }
+
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.rel = 'noopener noreferrer'
+  link.style.display = 'none'
+  document.body.appendChild(link)
+
+  try {
+    link.click()
+  } finally {
+    window.setTimeout(() => {
+      link.remove()
+      URL.revokeObjectURL(url)
+    }, 1500)
+  }
+}
+
 // Authentication APIs
 export const authAPI = {
   register: async (name, email, password, role) => {
@@ -345,14 +368,26 @@ export const attendanceAPI = {
   },
 
   exportCSV: async (classId, sessionId) => {
+    if (!classId || !sessionId) {
+      throw new Error('Class ID and Session ID are required for export')
+    }
+    console.log('[API] Exporting attendance CSV:', { classId, sessionId })
     return apiDownload(`/attendance/export/${classId}/${sessionId}`)
   },
 
   exportCsv: async (classId, sessionId) => {
+    if (!classId || !sessionId) {
+      throw new Error('Class ID and Session ID are required for export')
+    }
+    console.log('[API] Exporting attendance CSV:', { classId, sessionId })
     return apiDownload(`/attendance/export/${classId}/${sessionId}`)
   },
 
   exportExcel: async (classId, sessionId) => {
+    if (!classId || !sessionId) {
+      throw new Error('Class ID and Session ID are required for export')
+    }
+    console.log('[API] Exporting attendance Excel:', { classId, sessionId })
     return apiDownload(`/attendance/export-excel/${classId}/${sessionId}`)
   },
 }

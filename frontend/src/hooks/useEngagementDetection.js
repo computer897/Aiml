@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { loadFaceDetectionModels, detectFaces } from '../services/faceDetection'
 
+const ATTENTIVE_SCORE_THRESHOLD = 55
+
 /**
  * useEngagementDetection
  *
@@ -9,9 +11,10 @@ import { loadFaceDetectionModels, detectFaces } from '../services/faceDetection'
  * real-time student engagement data through the engagement-update event.
  *
  * Logic:
- *   face detected (single)   → engagement = "attentive"
- *   face detected (multiple) → engagement = "distracted"
- *   no face detected         → engagement = "not-detected"
+ *   face detected (multiple)                 → engagement = "distracted"
+ *   single face + low attention score (<55) → engagement = "distracted"
+ *   single face + good attention score       → engagement = "attentive"
+ *   no face detected                         → engagement = "not-detected"
  *
  * Fallback (when face-api models fail to load):
  *   treat as not-detected to avoid false present status.
@@ -33,6 +36,7 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
   const intervalRef     = useRef(null)
   const lastVideoWarningRef = useRef(0)
   const lastStatusRef = useRef('not-detected') // Track last emitted status
+  const lastCameraOnRef = useRef(null) // Track last emitted camera state
 
   // ── Load face-api models once on mount ──────────────────────────────────
   useEffect(() => {
@@ -53,6 +57,7 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
     let faceDetectedThisRound = false
 
     const videoElement = videoRef.current
+    const cameraOn = !!videoElement?.srcObject?.getVideoTracks?.().some(track => track.enabled)
     const videoReady = !!(
       videoElement &&
       videoElement.readyState >= 2 &&
@@ -71,7 +76,8 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
       if (result.multipleFaces) {
         status = 'distracted'
       } else if (faceDetectedThisRound) {
-        status = 'attentive'
+        const attentionScore = typeof result.attentionScore === 'number' ? result.attentionScore : 0
+        status = attentionScore >= ATTENTIVE_SCORE_THRESHOLD ? 'attentive' : 'distracted'
       }
     } else {
       if (videoElement && Date.now() - lastVideoWarningRef.current > 8000) {
@@ -93,31 +99,34 @@ export function useEngagementDetection({ videoRef, webrtcRef, userId, userName, 
 
     setEngagementStatus(status)
 
-    // KEY LOGIC: isPresent is TRUE only if face was detected (status !== 'not-detected')
-    // This means:
-    // - 'attentive' → isPresent = true
-    // - 'distracted' → isPresent = true
-    // - 'not-detected' → isPresent = false
-    const isPresent = status !== 'not-detected'
+    // KEY LOGIC: Present based on FACE DETECTION, not camera visibility
+    // This ensures students are marked present even if they turn off camera
+    // but their face is still detected (e.g., in the background)
+    const isPresent = status === 'attentive' && faceDetectedThisRound
+    const statusOrCameraChanged = status !== lastStatusRef.current || cameraOn !== lastCameraOnRef.current
 
-    // Only emit socket update if status changed (reduce API load)
-    if (status !== lastStatusRef.current) {
+    // Emit when either engagement status or camera state changes.
+    if (statusOrCameraChanged) {
+      const oldStatus = lastStatusRef.current
       lastStatusRef.current = status
+      lastCameraOnRef.current = cameraOn
 
       console.debug('[useEngagementDetection] Status changed:', {
         studentId: userId,
-        oldStatus: lastStatusRef.current,
+        oldStatus,
         newStatus: status,
         faceDetected: faceDetectedThisRound,
+        cameraOn,
         isPresent: isPresent,
       })
 
       // Emit to signaling server → forwarded to teacher as 'engagement-update'
       // CRITICAL FIELDS:
-      // - isPresent: boolean = true if face detected, false otherwise
-      // - cameraOn: boolean = true (physical camera always on for face detection)
+      // - isPresent: boolean = true when face is attentively detected (camera state independent)
+      // - cameraOn: boolean = actual user camera visibility state
       // - status: string = 'attentive'|'distracted'|'not-detected'
-      webrtcRef.current.sendEngagementUpdate(userId, status, userName, true, isPresent, Date.now())
+      // - faceDetected: boolean = whether face was detected this round
+      webrtcRef.current.sendEngagementUpdate(userId, status, userName, cameraOn, isPresent, Date.now())
     }
   }, [userId, userName, videoRef, webrtcRef])
 

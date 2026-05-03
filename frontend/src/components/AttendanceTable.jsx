@@ -1,29 +1,29 @@
 import { useState } from 'react'
 import { Download, Loader2 } from 'lucide-react'
-import { attendanceAPI } from '../services/api'
+import { attendanceAPI, downloadBlob } from '../services/api'
 
 function AttendanceTable({ attendanceData, classId, sessionId, loading = false }) {
   const [downloading, setDownloading] = useState(false)
   
   const handleDownload = async () => {
-    if (!classId || !sessionId) {
-      alert('Cannot download: Missing class or session information')
+    if (!classId) {
+      alert('Class ID is missing. Cannot download.')
       return
     }
-    
+    if (!sessionId) {
+      alert('Session ID is missing. Cannot download.')
+      return
+    }
+
     setDownloading(true)
     try {
+      console.log('[AttendanceTable] Exporting CSV:', { classId, sessionId })
       const blob = await attendanceAPI.exportCsv(classId, sessionId)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `attendance_${classId}_${sessionId}.csv`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `attendance_${classId}_${sessionId}.csv`)
+      console.log('[AttendanceTable] CSV export successful')
     } catch (error) {
-      alert(error.message || 'Failed to download attendance report')
+      console.error('[AttendanceTable] Export error:', error)
+      alert(error.message || 'Failed to download attendance report. Please check your connection and try again.')
     } finally {
       setDownloading(false)
     }
